@@ -1,6 +1,3 @@
-from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives import hashes
-import cryptography
 import shutil
 import sys
 import os
@@ -9,23 +6,6 @@ import platform
 from HashUtil import HashList
 
 hashlist = HashList.CHashList()
-
-def GetData(root, fl):
-    absp = os.path.join(root, fl)
-    fSize = os.path.getsize(absp)
-
-    #digest = hashes.Hash(hashes.SHA512_256(), backend=default_backend())
-    digest = hashes.Hash(hashes.SHA3_256(), backend=default_backend())
-
-    with open(absp, "rb+") as fi:
-        f = fi.read()
-        digest.update(f)
-        #for ln in fi.readlines():
-        #    digest.update(ln)
-
-    ha = digest.finalize()
-
-    return (fSize, ha)
 
 def MoveFileToQuarantine(r, fl, args):
     p, t = fl
@@ -36,9 +16,8 @@ def MoveFileToQuarantine(r, fl, args):
     if not os.path.exists(movTarPart):
         os.makedirs(movTarPart)
 
-    print("\tMoving {} to {}".format(absp, movTar))
+    print("Moving {} to {}".format(absp, movTar))
     shutil.move(absp, movTar)
-
 
 def IsDriveSafe(a,b):
     # Check path isn't our parent
@@ -64,6 +43,9 @@ def IsDriveSafe(a,b):
 
     return True
 
+    
+
+
 
 imageTypes = ['jpg', 'jpeg', 'png']
 
@@ -71,7 +53,6 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description="Generates File Identities with an option to quarantine duplicates")
     parser.add_argument("--allow-quarantine", action="store_true")
-    parser.add_argument("--override-location", action="store_true")
     parser.add_argument("path", metavar="path", type=str)
 
     args = parser.parse_args()
@@ -93,20 +74,15 @@ if __name__ == "__main__":
             fl = (relp, f[len(f) - 1].lower())
 
             try:
-                szBytes, fHash = GetData(r, fi)
+                if not hashlist.IsElementKnown(args.path, fl, allowLongHashes=True):
+                    #print("Adding file: {}".format(fl))
+                    pass
+                else:
+                    print("Wanting to move {}".format(fl))
+                    if args.allow_quarantine:
+                        MoveFileToQuarantine(r, (fi, fl[1]), args)  
+            except KeyboardInterrupt as kbi:
+                raise kbi
             except:
                 print("Error on file {}".format(fi), file=sys.stderr)
                 continue
-
-            if hashlist.CheckElement(szBytes, fHash, fl):
-                hashlist.AddElement(szBytes, fHash, fl)
-
-                #if not fl[1] in imageTypes:
-                #    if args.allow_quarantine:
-                #        MoveFileToQuarantine(r, (fi, fl[1]), args)
-
-            else:
-                if args.allow_quarantine:
-                    MoveFileToQuarantine(r, (fi, fl[1]), args)
-
-    #hashlist.Write()

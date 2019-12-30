@@ -100,7 +100,7 @@ class CHashList():
     def _DoesHashCollide(self, iFileSize, name, hShortHash, hLongHash, silent):
         for sz, shs, lhs, nm in self.hashList:
             if sz == iFileSize:
-                if (hShortHash != None and shs == hShortHash) and (hLongHash != None and lhs == hLongHash):
+                if (hShortHash != None and shs == hShortHash) or (hLongHash != None and lhs == hLongHash):
                     if name[0] == nm[0]:
                         if not self.hasWarnedOwnDirectory:
                             print("[{}] File collision on identical path. This directory has likely already been scanned somewhere.".format(Utils.Abbreviate("Error")), file=sys.stderr)

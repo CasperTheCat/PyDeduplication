@@ -82,6 +82,8 @@ if __name__ == "__main__":
                 else:
                     if args.allow_quarantine:
                         MoveFileToQuarantine(r, (fi, fl[1]), args)  
+            except KeyboardInterrupt as kbi:
+                raise kbi
             except:
                 print("Error on file {}".format(fi), file=sys.stderr)
                 continue
