@@ -148,13 +148,17 @@ class CHashList():
 
         return True
 
-    def AddElement(self, root, name, silent=True):
+    def AddElement(self, root, name, silent=True, useLongHash=True):
         fullPath = os.path.join(root, name[0])
         l_FileSize = os.path.getsize(fullPath)
 
         with open(fullPath, "rb") as ele:
             l_shortHash = self._GetShortHash(ele, l_FileSize)
-            l_longHash = self._GetLongHash(ele)
+            l_longHash = None
+
+            if useLongHash:
+                l_longHash = self._GetLongHash(ele)
+                
             self.hashList.append((l_FileSize, l_shortHash, l_longHash, name))
 
     def Write(self):
