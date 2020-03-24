@@ -5,24 +5,40 @@ import pickle
 import os
 import sys
 from . import Utils
+import platform # Needed for the platform check
 
 class CHashList():
-    def __init__(self):
+    def __init__(self, path = None):
         self.hashList = []
         self.hasWarnedOwnDirectory = False
 
-        self.storeName = ".!HashList"
+        if path:
+            if os.path.isdir(path):
+                raise ValueError("Path is a directory instead of a file")
 
-        # Load
-        if os.path.exists(self.storeName) and os.path.getsize(self.storeName) > 0:
+            self.storeName = path
 
-            with open(self.storeName, "rb+") as f:
-                self.hashList = pickle.load(f)
-                print("Loaded {} References".format(len(self.hashList)))
+            # Load
+            if os.path.exists(self.storeName) and os.path.getsize(self.storeName) > 0:
+
+                with open(self.storeName, "rb+") as f:
+                    self.hashList = pickle.load(f)
+                    print("Loaded {} References".format(len(self.hashList)))
+            else:
+                with open(self.storeName, "wb+") as nf:
+                    pass
         else:
+            self.storeName = ".!HashList"
             with open(self.storeName, "wb+") as nf:
                 pass
+
+
         
+    def _SanitisePath(self, path):
+        if platform.system() == "Windows":
+            return (b'/'.join(path.split(b"\\")))
+        else:
+            return path
 
     # def AddElement(self, sizeBytes, fhash, name):
     #     self.hashList.append((sizeBytes, fhash, name))
@@ -101,16 +117,16 @@ class CHashList():
         for sz, shs, lhs, nm in self.hashList:
             if sz == iFileSize:
                 if (hShortHash != None and shs == hShortHash) or (hLongHash != None and lhs == hLongHash):
-                    if name[0] == nm[0]:
+                    if self._SanitisePath(name[0]) == nm[0]:
                         if not self.hasWarnedOwnDirectory:
                             print("[{}] File collision on identical path. This directory has likely already been scanned somewhere.".format(Utils.Abbreviate("Error")), file=sys.stderr)
                             self.hasWarnedOwnDirectory = True
                     else:
                         if not silent:
-                            print("Checked File ({}) collided with {}".format(name, nm))
+                            print("Checked File ({}) collided with {}".format(self._SanitisePath(name[0]), nm[0]))
 
-                    if(hLongHash != None):
-                        print("LongHash Check")
+                    #if(hLongHash != None):
+                    #    print("LongHash Check")
 
                     return True
         return False
@@ -121,15 +137,16 @@ class CHashList():
     def _DoesShortHashCollide(self, iFileSize, name, hShortHash, silent):
         return self._DoesHashCollide(iFileSize, name, hShortHash, None, silent)
     
-    def IsElementKnown(self, root, name, allowLongHashes=False,  silent=False):
+    def IsElementKnown(self, root, relPath, extension, allowLongHashes=False,  silent=False):
         """
         Check Element against internal file list
 
         Raises:
             IOError
         """
+        
         # Get file size
-        fullPath = os.path.join(root, name[0])
+        fullPath = os.path.join(root, relPath)
         l_FileSize = os.path.getsize(fullPath)
 
         with open(fullPath, "rb") as ele:
@@ -137,19 +154,29 @@ class CHashList():
             # Get 'Short' Hash
             l_shortHash = self._GetShortHash(ele, l_FileSize)
 
-            if not self._DoesShortHashCollide(l_FileSize, name, l_shortHash, silent):
+            if not self._DoesShortHashCollide(l_FileSize, (relPath, extension), l_shortHash, silent):
                 return False
 
             if allowLongHashes:
                 l_longHash = self._GetLongHash(ele)
 
-                if not self._DoesLongHashCollide(l_FileSize, name, l_longHash, silent):
+                if not self._DoesLongHashCollide(l_FileSize, (relPath, extension), l_longHash, silent):
                     return False
 
         return True
 
-    def AddElement(self, root, name, silent=True, useLongHash=True):
-        fullPath = os.path.join(root, name[0])
+    def AddElement(self, root, relPath, extension, silent=True, useLongHash=True):
+        """
+            Root = Base Directory
+            RelPath = Relative offset from Base
+            Extension = File extension
+
+            Silent = Mutes output
+            useLongHash = Should the longer hash be generated
+        """
+        saneRelPath = self._SanitisePath(relPath)
+
+        fullPath = os.path.join(root, relPath)
         l_FileSize = os.path.getsize(fullPath)
 
         with open(fullPath, "rb") as ele:
@@ -159,8 +186,22 @@ class CHashList():
             if useLongHash:
                 l_longHash = self._GetLongHash(ele)
                 
-            self.hashList.append((l_FileSize, l_shortHash, l_longHash, name))
+            self.hashList.append((l_FileSize, l_shortHash, l_longHash, (saneRelPath, extension)))
 
-    def Write(self):
-        with open(self.storeName, "rb+") as f:
-            pickle.dump(self.hashList, f)
+    def Write(self, path=None):
+        if path:
+            if os.path.exists(path):
+                os.makedirs(path)
+
+            if os.path.isdir(path):
+                path = os.path.join(path, ".!HashList")
+
+            if os.path.exists(path): # Again after the first because we may have made a new file
+                with open(path, "rb+") as f:
+                    pickle.dump(self.hashList, f)
+            else:
+                with open(path, "wb+") as f:
+                    pickle.dump(self.hashList, f)
+        else:
+            with open(self.storeName, "rb+") as f:
+                pickle.dump(self.hashList, f)
