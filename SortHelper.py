@@ -57,8 +57,11 @@ def IsDriveSafe(a,b):
 
     return True
 
-    
+def GetExtension(filename: str):
+    return filename.split(".")[-1].lower().encode()
 
+excludeDirs = [".git"]
+excludeFileTypes = [b"gitignore"]
 
 
 imageTypes = ['jpg', 'jpeg', 'png']
@@ -93,6 +96,14 @@ if __name__ == "__main__":
     hashlist = HashList.CHashList(encodedHashtable)
 
     for r, d, p in os.walk(args.path):
+        d[:] = [x for x in d if x not in excludeDirs]
+        p[:] = [x for x in p if GetExtension(x) not in excludeFileTypes]
+
+        if ".skipfolder" in p:
+            d[:] = []#[x for x in d]
+            print("Skipping Below {}".format(r))
+            continue
+
         for fi in p:
             # Let's catagorise these
             f = fi.split(".")
@@ -102,12 +113,12 @@ if __name__ == "__main__":
 
 
             try:
-                if not hashlist.IsElementKnown(args.path.encode(), relp, ext, allowLongHashes=False):
+                if not hashlist.IsElementKnown(args.path.encode(), relp, ext, allowLongHashes=False, silent=args.silent):
                     #hashlist.AddElement(args.path.encode(), relp, ext, False, False)
                     print("Skipping file: {}".format(relp))
                     pass
                 else:
-                    print("Wanting to move {}".format(relp))
+                    #print("Wanting to move {}".format(relp))
                     if args.allow_quarantine:
                         MoveFileToQuarantine(args.path.encode(), (relp, ext), args)  
             except KeyboardInterrupt as kbi:

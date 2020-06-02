@@ -49,10 +49,12 @@ def IsDriveSafe(a,b):
     return True
 
     
+def GetExtension(filename: str):
+    return filename.split(".")[-1].lower().encode()
 
 
-
-imageTypes = ['jpg', 'jpeg', 'png']
+excludeDirs = [b".git"]
+excludeFileTypes = [b"gitignore"]
 
 if __name__ == "__main__":
     
@@ -86,6 +88,14 @@ if __name__ == "__main__":
     hashlist.Prune(pathAsBytes, dry_run=False, silent=args.silent)
 
     for r, d, p in os.walk(args.path):
+        d[:] = [x for x in d if x not in excludeDirs]
+        p[:] = [x for x in p if GetExtension(x) not in excludeFileTypes]
+
+        if ".skipfolder" in p:
+            d[:] = []#[x for x in d]
+            print("Skipping Below {}".format(r))
+            continue
+
         for fi in p:
             # Let's catagorise these
             f = fi.split(".")

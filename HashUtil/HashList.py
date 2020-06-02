@@ -81,13 +81,25 @@ class CHashList():
 
         return digest.finalize()
 
+    def _ChunksOf(self, fileObj):
+        while True:
+            chunk = fileObj.read(1024 * 1024 * 64)
 
-    # Maybe a bit of a memory hog :(
+            if not chunk:
+                break
+            else:
+                yield chunk
+
+    # Using 64MiB of ram, surely people have this much
     def _GetLongHash(self, fileObj):
+        digest = hashes.Hash(hashes.SHA3_256(), backend=default_backend())
+
         fileObj.seek(0)
-        data = fileObj.read()
+        for chunk in self._ChunksOf(fileObj):
+            digest.update(chunk)
         fileObj.seek(0)
-        return self._GetHash(data)
+
+        return digest.finalize()
 
     def _GetShortHash(self, fileObj, fileSize):
 
