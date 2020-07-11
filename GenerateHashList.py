@@ -59,12 +59,27 @@ excludeFileTypes = [b"gitignore"]
 if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description="Generates File Identities with an option to quarantine duplicates")
-    parser.add_argument("--allow-quarantine", action="store_true")
-    parser.add_argument("--silent", action="store_true")
+    parser.add_argument("--allow-quarantine", action="store_true", help='Enable moving files - Dangerous')
+    parser.add_argument("-sh", "--short-hash", action="store_true", help='Prevent full file Hashes being generated')
+    parser.add_argument("-r", "--raw", action="store_true", help='Prevent hashing the contents of files; instead hash the container')
+    parser.add_argument("--silent", action="store_true", help='Silence output')
     parser.add_argument('-t', '--hashtable', nargs=1, type=str, help='Location of hashtable')
     parser.add_argument("path", metavar="path", type=str)
 
     args = parser.parse_args()
+
+    # Sanity Short and non-raw
+    if args.short_hash and not args.raw:
+        print("[WARN]: Using short hashes without specifing the raw hash mode may lead to false positive collisions.")
+
+    if args.allow_quarantine and args.short_hash:
+        print("[WARN]: Using quarantine without the added safety of full-file hashes is not advised.")
+        if not args.raw:
+            print("[ERRR]: Quarantining enabled without raw or full-file hashes. This configuration WILL result in quarantining files in error. Either specify raw hashes or renable full-file hashing!")
+            sys.exit(-1)
+
+    
+
 
     if not os.path.exists(args.path):
         raise IOError("Directory \"{}\" does not exist".format(
@@ -104,9 +119,9 @@ if __name__ == "__main__":
             ext = f[len(f) - 1].lower().encode()
 
             try:
-                if not hashlist.IsElementKnown(pathAsBytes, relp, ext, allowLongHashes=args.allow_quarantine, silent=args.silent):
+                if not hashlist.IsElementKnown(pathAsBytes, relp, ext, allowLongHashes=(not args.short_hash), silent=args.silent, useRawHashes=args.raw):
                     print("Adding file: {}".format(relp))
-                    hashlist.AddElement(pathAsBytes, relp, ext, silent=args.silent)
+                    hashlist.AddElement(pathAsBytes, relp, ext, silent=args.silent, useLongHash=(not args.short_hash), useRawHashes=args.raw)
                 else:
                     if args.allow_quarantine:
                         MoveFileToQuarantine(r, (fi, ext), args)  

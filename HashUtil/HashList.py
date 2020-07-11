@@ -7,6 +7,15 @@ import sys
 from . import Utils
 import platform # Needed for the platform check
 
+# Better Arrays
+import numpy
+
+# Imports for Type Matching
+from PIL import Image
+
+PIL_supportedImageTypes = [b"jpg", b"png"]
+
+
 class CHashList():
     def __init__(self, path = None):
         self.hashList = []
@@ -125,17 +134,41 @@ class CHashList():
 
         return sHash
 
+    def _PILHash(self, fileObj, limit=None):
+        img = Image.open(fileObj)
+        imgData = numpy.array(img)
+        return self._GetHash(imgData[0:limit])
+
+    def _ShortHashSelector(self, fileObj, fileSize, fileExtension, useRaw):
+        if useRaw:
+            return self._GetShortHash(fileObj, fileSize)
+
+        # Use Selector
+        if fileExtension in PIL_supportedImageTypes:
+            return self._PILHash(fileObj, 4096)
+        else:
+            return self._GetShortHash(fileObj, fileSize)
+
+    def _LongHashSelector(self, fileObj, fileSize, fileExtension, useRaw):
+        if useRaw:
+            return self._GetLongHash(fileObj)
+
+        if fileExtension in PIL_supportedImageTypes:
+            return self._PILHash(fileObj)
+        else:
+            return self._GetLongHash(fileObj)
+
     def _DoesHashCollide(self, iFileSize, name, hShortHash, hLongHash, silent):
         for sz, shs, lhs, nm in self.hashList:
             if sz == iFileSize:
                 if (hShortHash != None and shs == hShortHash) or (hLongHash != None and lhs == hLongHash):
                     if self._SanitisePath(name[0]) == nm[0]:
-                        if not self.hasWarnedOwnDirectory:
-                            print("[{}] File collision on identical path. This directory has likely already been scanned somewhere.".format(Utils.Abbreviate("Error")), file=sys.stderr)
-                            self.hasWarnedOwnDirectory = True
-                    else:
                         if not silent:
-                            print("Checked File ({}) collided with {}".format(self._SanitisePath(name[0]), nm[0]))
+                            if not self.hasWarnedOwnDirectory:
+                                print("[{}] File collision on identical path. This directory has likely already been scanned somewhere.".format(Utils.Abbreviate("Error")), file=sys.stderr)
+                                self.hasWarnedOwnDirectory = True
+                    if not silent:
+                        print("Checked File {} collided with {}".format(self._SanitisePath(name[0]), nm[0]))
 
                     #if(hLongHash != None):
                     #    print("LongHash Check")
@@ -149,7 +182,7 @@ class CHashList():
     def _DoesShortHashCollide(self, iFileSize, name, hShortHash, silent):
         return self._DoesHashCollide(iFileSize, name, hShortHash, None, silent)
     
-    def IsElementKnown(self, root, relPath, extension, allowLongHashes=False,  silent=False):
+    def IsElementKnown(self, root, relPath, extension, allowLongHashes=False,  silent=False, useRawHashes=False):
         """
         Check Element against internal file list
 
@@ -164,20 +197,20 @@ class CHashList():
         with open(fullPath, "rb") as ele:
 
             # Get 'Short' Hash
-            l_shortHash = self._GetShortHash(ele, l_FileSize)
+            l_shortHash = self._ShortHashSelector(ele, l_FileSize, extension, useRawHashes)
 
             if not self._DoesShortHashCollide(l_FileSize, (relPath, extension), l_shortHash, silent):
                 return False
 
             if allowLongHashes:
-                l_longHash = self._GetLongHash(ele)
+                l_longHash = self._LongHashSelector(ele, l_FileSize, extension, useRawHashes)
 
                 if not self._DoesLongHashCollide(l_FileSize, (relPath, extension), l_longHash, silent):
                     return False
 
         return True
 
-    def AddElement(self, root, relPath, extension, silent=True, useLongHash=True):
+    def AddElement(self, root, relPath, extension, silent=True, useLongHash=True, useRawHashes=False):
         """
             Root = Base Directory
             RelPath = Relative offset from Base
@@ -192,11 +225,11 @@ class CHashList():
         l_FileSize = os.path.getsize(fullPath)
 
         with open(fullPath, "rb") as ele:
-            l_shortHash = self._GetShortHash(ele, l_FileSize)
+            l_shortHash = self._ShortHashSelector(ele, l_FileSize, extension, useRawHashes)
             l_longHash = None
 
             if useLongHash:
-                l_longHash = self._GetLongHash(ele)
+                l_longHash = self._LongHashSelector(ele, l_FileSize, extension, useRawHashes)
                 
             self.hashList.append((l_FileSize, l_shortHash, l_longHash, (saneRelPath, extension)))
 
