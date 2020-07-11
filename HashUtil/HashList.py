@@ -13,7 +13,7 @@ import numpy
 # Imports for Type Matching
 from PIL import Image
 
-PIL_supportedImageTypes = [b"jpg", b"png"]
+PIL_supportedImageTypes = [b"bmp", b"gif", b"ico", b"jpeg", b"jpg", b"pcx", b"png", b"ppm", b"tga", b"tiff", b"tif" b"dds", b"psd", b"dcx"]
 
 
 class CHashList():
@@ -139,24 +139,31 @@ class CHashList():
         imgData = numpy.array(img)
         return self._GetHash(imgData[0:limit])
 
-    def _ShortHashSelector(self, fileObj, fileSize, fileExtension, useRaw):
+    def _ShortHashSelector(self, fileObj, fileSize, path, fileExtension, useRaw):
         if useRaw:
             return self._GetShortHash(fileObj, fileSize)
 
         # Use Selector
-        if fileExtension in PIL_supportedImageTypes:
-            return self._PILHash(fileObj, 4096)
-        else:
-            return self._GetShortHash(fileObj, fileSize)
+        try:
+            if fileExtension.lower() in PIL_supportedImageTypes:
+                return self._PILHash(fileObj, 4096)
+        except Exception as _:
+            print("Possible Bad File: {}".format(path.decode()))
 
-    def _LongHashSelector(self, fileObj, fileSize, fileExtension, useRaw):
+        return self._GetShortHash(fileObj, fileSize)
+
+    def _LongHashSelector(self, fileObj, fileSize, path, fileExtension, useRaw):
         if useRaw:
             return self._GetLongHash(fileObj)
 
-        if fileExtension in PIL_supportedImageTypes:
-            return self._PILHash(fileObj)
-        else:
-            return self._GetLongHash(fileObj)
+        try:
+            if fileExtension.lower() in PIL_supportedImageTypes:
+                return self._PILHash(fileObj)
+        except Exception as _:
+            print("Possible Bad File: {}".format(path.decode()))
+
+        return self._GetLongHash(fileObj)
+
 
     def _DoesHashCollide(self, iFileSize, name, hShortHash, hLongHash, silent):
         for sz, shs, lhs, nm in self.hashList:
@@ -197,13 +204,13 @@ class CHashList():
         with open(fullPath, "rb") as ele:
 
             # Get 'Short' Hash
-            l_shortHash = self._ShortHashSelector(ele, l_FileSize, extension, useRawHashes)
+            l_shortHash = self._ShortHashSelector(ele, l_FileSize, relPath, extension, useRawHashes)
 
             if not self._DoesShortHashCollide(l_FileSize, (relPath, extension), l_shortHash, silent):
                 return False
 
             if allowLongHashes:
-                l_longHash = self._LongHashSelector(ele, l_FileSize, extension, useRawHashes)
+                l_longHash = self._LongHashSelector(ele, l_FileSize, relPath, extension, useRawHashes)
 
                 if not self._DoesLongHashCollide(l_FileSize, (relPath, extension), l_longHash, silent):
                     return False
@@ -225,11 +232,11 @@ class CHashList():
         l_FileSize = os.path.getsize(fullPath)
 
         with open(fullPath, "rb") as ele:
-            l_shortHash = self._ShortHashSelector(ele, l_FileSize, extension, useRawHashes)
+            l_shortHash = self._ShortHashSelector(ele, l_FileSize, relPath, extension, useRawHashes)
             l_longHash = None
 
             if useLongHash:
-                l_longHash = self._LongHashSelector(ele, l_FileSize, extension, useRawHashes)
+                l_longHash = self._LongHashSelector(ele, l_FileSize, relPath, extension, useRawHashes)
                 
             self.hashList.append((l_FileSize, l_shortHash, l_longHash, (saneRelPath, extension)))
 
