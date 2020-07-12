@@ -26,14 +26,12 @@ if __name__ == "__main__":
 
     # Recover Salt
     encodedSalt = args.salt[0].encode() if args.salt else dat[:16]
-    print("Salt={}".format(encodedSalt))
 
     # Trim Data
     dat = dat[len(encodedSalt):]
 
     # PBKDF2 Keys
     key = EncryptionHelpers.KeyFromPassword(args.password, encodedSalt)
-    print("Generated Key {}".format(key))
 
     # Decrypt
     raw = EncryptionHelpers.Decrypt(dat, key, encodedSalt)

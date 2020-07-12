@@ -19,10 +19,8 @@ if __name__ == "__main__":
     outputFile = args.out[0] if args.out else args.hashtable
 
     encodedSalt = args.salt[0].encode() if args.salt else os.urandom(16)
-    print("Salt={}".format(encodedSalt))
 
     key = EncryptionHelpers.KeyFromPassword(args.password, encodedSalt)
-    print("Generated Key {}".format(key))
 
     dat = None
 
