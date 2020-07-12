@@ -5,6 +5,7 @@ import pickle
 import os
 import sys
 from . import Utils
+from . import EncryptionHelpers
 import platform # Needed for the platform check
 
 # Better Arrays
@@ -21,17 +22,21 @@ class CHashList():
         self.hashList = []
         self.hasWarnedOwnDirectory = False
 
+        #LoadHashes
         if path:
             if os.path.isdir(path):
-                raise ValueError("Path is a directory instead of a file")
+                raise ValueError("Path is a directory, not a file")
 
             self.storeName = path
+            self.machineKey = EncryptionHelpers.LoadMachineKeys()
+            self.unserialisedBytes = 0
 
             # Load
             if os.path.exists(self.storeName) and os.path.getsize(self.storeName) > 0:
 
                 with open(self.storeName, "rb+") as f:
-                    self.hashList = pickle.load(f)
+                    pickled = EncryptionHelpers.Decrypt(f.read(), self.machineKey)
+                    self.hashList = pickle.loads(pickled)
                     print("Loaded {} References".format(len(self.hashList)))
             else:
                 with open(self.storeName, "wb+") as nf:
@@ -149,6 +154,8 @@ class CHashList():
                 return self._PILHash(fileObj, 4096)
         except Exception as _:
             print("Possible Bad File: {}".format(path.decode()))
+        except KeyboardInterrupt as kbi:
+            raise kbi
 
         return self._GetShortHash(fileObj, fileSize)
 
@@ -161,6 +168,8 @@ class CHashList():
                 return self._PILHash(fileObj)
         except Exception as _:
             print("Possible Bad File: {}".format(path.decode()))
+        except KeyboardInterrupt as kbi:
+            raise kbi
 
         return self._GetLongHash(fileObj)
 
@@ -240,20 +249,30 @@ class CHashList():
                 
             self.hashList.append((l_FileSize, l_shortHash, l_longHash, (saneRelPath, extension)))
 
+        self.unserialisedBytes += l_FileSize
+
+        if self.unserialisedBytes > 16 * 1024 * 1024:
+            print("Saving Checkpoint")
+            self.Write(self.storeName + b".tmp")
+            self.unserialisedBytes = 0
+
     def Write(self, path=None):
         if path:
-            if os.path.exists(path):
-                os.makedirs(path)
+            # if not os.path.exists(path):
+            #     os.makedirs(path)
 
             if os.path.isdir(path):
                 path = os.path.join(path, ".!HashList")
 
             if os.path.exists(path): # Again after the first because we may have made a new file
                 with open(path, "rb+") as f:
-                    pickle.dump(self.hashList, f)
+                    pickled = pickle.dumps(self.hashList)
+                    f.write(EncryptionHelpers.Encrypt(pickled, self.machineKey))
             else:
                 with open(path, "wb+") as f:
-                    pickle.dump(self.hashList, f)
+                    pickled = pickle.dumps(self.hashList)
+                    f.write(EncryptionHelpers.Encrypt(pickled, self.machineKey))
         else:
             with open(self.storeName, "rb+") as f:
-                pickle.dump(self.hashList, f)
+                pickled = pickle.dumps(self.hashList)
+                f.write(EncryptionHelpers.Encrypt(pickled, self.machineKey))
