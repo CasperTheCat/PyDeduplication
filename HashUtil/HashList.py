@@ -183,8 +183,9 @@ class CHashList():
                             if not self.hasWarnedOwnDirectory:
                                 print("[{}] File collision on identical path. This directory has likely already been scanned somewhere.".format(Utils.Abbreviate("Error")), file=sys.stderr)
                                 self.hasWarnedOwnDirectory = True
-                    if not silent:
-                        print("Checked File {} collided with {}".format(self._SanitisePath(name[0]), nm[0]))
+                    else:
+                        if not silent:
+                            print("Checked File {} collided with {}".format(self._SanitisePath(name[0]), nm[0]))
 
                     #if(hLongHash != None):
                     #    print("LongHash Check")
@@ -251,12 +252,12 @@ class CHashList():
 
         self.unserialisedBytes += l_FileSize
 
-        if self.unserialisedBytes > 16 * 1024 * 1024:
+        if self.unserialisedBytes > 256 * 1024 * 1024:
             print("Saving Checkpoint")
-            self.Write(self.storeName + b".tmp")
+            self.Write(self.storeName + b".tmp", True)
             self.unserialisedBytes = 0
 
-    def Write(self, path=None):
+    def Write(self, path=None, overwrite=False):
         if path:
             # if not os.path.exists(path):
             #     os.makedirs(path)
@@ -264,7 +265,7 @@ class CHashList():
             if os.path.isdir(path):
                 path = os.path.join(path, ".!HashList")
 
-            if os.path.exists(path): # Again after the first because we may have made a new file
+            if os.path.exists(path) and not overwrite: # Again after the first because we may have made a new file
                 with open(path, "rb+") as f:
                     pickled = pickle.dumps(self.hashList)
                     f.write(EncryptionHelpers.Encrypt(pickled, self.machineKey))
