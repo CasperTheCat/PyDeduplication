@@ -92,7 +92,7 @@ if __name__ == "__main__":
     #        args.hashtable
     #))
 
-    if not IsDriveSafe(args.path, "./"):
+    if not IsDriveSafe(args.path, "./") and args.allow_quarantine:
         raise Exception("Path is a parent of the directory this script is in!")
 
     pathAsBytes = args.path.encode()
