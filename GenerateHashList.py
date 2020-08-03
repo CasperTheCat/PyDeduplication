@@ -53,7 +53,7 @@ def GetExtension(filename: str):
     return filename.split(".")[-1].lower().encode()
 
 
-excludeDirs = [b".git"]
+excludeDirs = [".git"]
 excludeFileTypes = [b"gitignore"]
 
 if __name__ == "__main__":
