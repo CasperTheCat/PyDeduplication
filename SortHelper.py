@@ -70,7 +70,7 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description="Generates File Identities with an option to quarantine duplicates")
     parser.add_argument("--allow-quarantine", action="store_true", help='Enable moving files - Dangerous')
-    parser.add_argument("-lh", "--long-hash", action="store_true", help='Prevent full file Hashes being generated')
+    parser.add_argument("-lh", "--long-hash", action="store_true", help='Enable full file Hashes being generated')
     parser.add_argument("-r", "--raw", action="store_true", help='Prevent hashing the contents of files; instead hash the container')
     parser.add_argument("--silent", action="store_true", help='Silence output')
     parser.add_argument('-t', '--hashtable', nargs=1, type=str, help='Location of hashtable')
