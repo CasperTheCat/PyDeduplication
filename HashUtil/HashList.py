@@ -21,6 +21,8 @@ class CHashList():
     def __init__(self, path = None):
         self.hashList = []
         self.hasWarnedOwnDirectory = False
+        self.machineKey = EncryptionHelpers.LoadMachineKeys()
+        self.unserialisedBytes = 0
 
         #LoadHashes
         if path:
@@ -28,12 +30,23 @@ class CHashList():
                 raise ValueError("Path is a directory, not a file")
 
             self.storeName = path
-            self.machineKey = EncryptionHelpers.LoadMachineKeys()
-            self.unserialisedBytes = 0
 
-            # Load
-            if os.path.exists(self.storeName) and os.path.getsize(self.storeName) > 0:
+            ## Load
+            # Check for TMP File first!
+            if (
+                os.path.exists(self.storeName + b".tmp") 
+                and os.path.getsize(self.storeName + b".tmp") > 0 
+                and os.path.getmtime(self.storeName + b".tmp") > os.path.getmtime(self.storeName)
+            ):
+                # TMP is here, but it is newer?
+                # If it is, we can load it instead
+                with open(self.storeName + b".tmp", "rb+") as f:
+                    pickled = EncryptionHelpers.Decrypt(f.read(), self.machineKey)
+                    self.hashList = pickle.loads(pickled)
+                    print("Loaded {} References from checkpoint".format(len(self.hashList)))
+                
 
+            elif os.path.exists(self.storeName) and os.path.getsize(self.storeName) > 0:
                 with open(self.storeName, "rb+") as f:
                     pickled = EncryptionHelpers.Decrypt(f.read(), self.machineKey)
                     self.hashList = pickle.loads(pickled)
@@ -175,17 +188,22 @@ class CHashList():
 
 
     def _DoesHashCollide(self, iFileSize, name, hShortHash, hLongHash, silent):
+        # Is the file empty? It'll collide with every other empty file
+        if iFileSize == 0:
+            print("[EMPTY] File {} is empty".format(self._SanitisePath(name[0])))
+            return True
+
         for sz, shs, lhs, nm in self.hashList:
             if sz == iFileSize:
                 if (hShortHash != None and shs == hShortHash) or (hLongHash != None and lhs == hLongHash):
                     if self._SanitisePath(name[0]) == nm[0]:
                         if not silent:
                             if not self.hasWarnedOwnDirectory:
-                                print("[{}] File collision on identical path. This directory has likely already been scanned somewhere.".format(Utils.Abbreviate("Error")), file=sys.stderr)
+                                print("[{}] File collision on identical path. This directory has likely already been scanned somewhere.".format(Utils.Abbreviate("Warning")), file=sys.stderr)
                                 self.hasWarnedOwnDirectory = True
                     else:
                         if not silent:
-                            print("Checked File {} collided with {}".format(self._SanitisePath(name[0]), nm[0]))
+                            print("[COLLISION] File {} collided with {}".format(self._SanitisePath(name[0]), nm[0]))
 
                     #if(hLongHash != None):
                     #    print("LongHash Check")
@@ -253,7 +271,7 @@ class CHashList():
         self.unserialisedBytes += l_FileSize
 
         if self.unserialisedBytes > 256 * 1024 * 1024:
-            print("Saving Checkpoint")
+            print("[CHECKPOINT] Saving Checkpoint")
             self.Write(self.storeName + b".tmp", True)
             self.unserialisedBytes = 0
 
