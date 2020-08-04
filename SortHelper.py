@@ -120,9 +120,9 @@ if __name__ == "__main__":
 
             try:
                 if not hashlist.IsElementKnown(args.path.encode(), relp, ext, allowLongHashes=args.long_hash, silent=args.silent, useRawHashes=args.raw):
-                    hashlist.AddElement(args.path.encode(), relp, ext, silent=args.silent, useLongHash=args.long_hash, useRawHashes=args.raw)
+                    hashlist.AddElement(args.path.encode(), relp, ext, silent=args.silent, useLongHash=args.long_hash, useRawHashes=args.raw, disableCheckpoint=True)
                     if not args.silent:
-                        print("[CLEAR] File: {}".format(relp.decode()))
+                        print("[CLEAR] File: {}".format(relp))#.decode()))
                     pass
                 else:
                     #print("Wanting to move {}".format(relp))
@@ -131,6 +131,6 @@ if __name__ == "__main__":
             except KeyboardInterrupt as kbi:
                 raise kbi
             except Exception as e:
-                print("Error on file {}. Reason: {}".format(fi, e), file=sys.stderr)
+                print("Error on file {}. Reason: {}".format(relp, e), file=sys.stderr)
                 #raise e
                 continue

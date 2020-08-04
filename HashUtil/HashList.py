@@ -176,7 +176,7 @@ class CHashList():
             if fileExtension.lower() in PIL_supportedImageTypes:
                 return self._PILHash(fileObj, 4096)
         except Exception as _:
-            print("Possible Bad File: {}".format(path.decode()))
+            print("[WARN] Possible Bad File: {}".format(path))
         except KeyboardInterrupt as kbi:
             raise kbi
 
@@ -190,7 +190,7 @@ class CHashList():
             if fileExtension.lower() in PIL_supportedImageTypes:
                 return self._PILHash(fileObj)
         except Exception as _:
-            print("Possible Bad File: {}".format(path.decode()))
+            print("[WARN] Possible Bad File: {}".format(path))
         except KeyboardInterrupt as kbi:
             raise kbi
 
@@ -208,7 +208,7 @@ class CHashList():
                                 self.hasWarnedOwnDirectory = True
                     else:
                         if not silent:
-                            print("[COLLISION] File \"{}\" collided with \"{}\"".format(self._SanitisePath(name[0]).decode(), nm[0].decode()))
+                            print("[COLLISION] File {} collided with {}".format(self._SanitisePath(name[0]), nm[0]))
 
                     #if(hLongHash != None):
                     #    print("LongHash Check")
@@ -236,7 +236,7 @@ class CHashList():
 
         # Is the file empty? It'll collide with every other empty file
         if l_FileSize == 0:
-            print("[EMPTY] File \"{}\" is empty".format(self._SanitisePath(relPath).decode()))
+            print("[EMPTY] File {} is empty".format(self._SanitisePath(relPath)))
             return True
 
         with open(fullPath, "rb") as ele:
@@ -257,7 +257,7 @@ class CHashList():
 
         return True
 
-    def AddElement(self, root, relPath, extension, silent=True, useLongHash=True, useRawHashes=False):
+    def AddElement(self, root, relPath, extension, silent=True, useLongHash=True, useRawHashes=False, disableCheckpoint=False):
         """
             Root = Base Directory
             RelPath = Relative offset from Base
@@ -282,7 +282,7 @@ class CHashList():
 
         self.unserialisedBytes += l_FileSize
 
-        if self.unserialisedBytes > 256 * 1024 * 1024:
+        if self.unserialisedBytes > 256 * 1024 * 1024 and not disableCheckpoint:
             print("[CHECKPOINT] Saving Checkpoint")
             self.Write(self.storeName + b".tmp", True)
             self.unserialisedBytes = 0
