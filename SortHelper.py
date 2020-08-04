@@ -120,7 +120,7 @@ if __name__ == "__main__":
                 if not hashlist.IsElementKnown(args.path.encode(), relp, ext, allowLongHashes=args.long_hash, silent=args.silent, useRawHashes=args.raw):
                     #hashlist.AddElement(args.path.encode(), relp, ext, False, False)
                     if not args.silent:
-                        print("[CLEAR] Skipping file: {}".format(relp))
+                        print("[CLEAR] Skipping file: {}".format(relp.decode()))
                     pass
                 else:
                     #print("Wanting to move {}".format(relp))
