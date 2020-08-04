@@ -190,7 +190,7 @@ class CHashList():
     def _DoesHashCollide(self, iFileSize, name, hShortHash, hLongHash, silent):
         # Is the file empty? It'll collide with every other empty file
         if iFileSize == 0:
-            print("[EMPTY] File {} is empty".format(self._SanitisePath(name[0])))
+            print("[EMPTY] File \"{}\" is empty".format(self._SanitisePath(name[0]).decode()))
             return True
 
         for sz, shs, lhs, nm in self.hashList:
@@ -203,7 +203,7 @@ class CHashList():
                                 self.hasWarnedOwnDirectory = True
                     else:
                         if not silent:
-                            print("[COLLISION] File {} collided with {}".format(self._SanitisePath(name[0]), nm[0]))
+                            print("[COLLISION] File \"{}\" collided with \"{}\"".format(self._SanitisePath(name[0]).decode(), nm[0].decode()))
 
                     #if(hLongHash != None):
                     #    print("LongHash Check")
