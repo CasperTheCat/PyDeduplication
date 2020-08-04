@@ -31,26 +31,27 @@ class CHashList():
 
             self.storeName = path
 
-            ## Load
-            # Check for TMP File first!
-            if (
-                os.path.exists(self.storeName + b".tmp") 
-                and os.path.getsize(self.storeName + b".tmp") > 0 
-                and os.path.getmtime(self.storeName + b".tmp") > os.path.getmtime(self.storeName)
-            ):
-                # TMP is here, but it is newer?
-                # If it is, we can load it instead
-                with open(self.storeName + b".tmp", "rb+") as f:
-                    pickled = EncryptionHelpers.Decrypt(f.read(), self.machineKey)
-                    self.hashList = pickle.loads(pickled)
-                    print("Loaded {} References from checkpoint".format(len(self.hashList)))
-                
+            bMasterFileIsValid = os.path.exists(self.storeName) and os.path.getsize(self.storeName) > 0
+            bTempFileIsValid = os.path.exists(self.storeName + b".tmp") and os.path.getsize(self.storeName + b".tmp") > 0 
 
-            elif os.path.exists(self.storeName) and os.path.getsize(self.storeName) > 0:
-                with open(self.storeName, "rb+") as f:
-                    pickled = EncryptionHelpers.Decrypt(f.read(), self.machineKey)
-                    self.hashList = pickle.loads(pickled)
-                    print("Loaded {} References".format(len(self.hashList)))
+            # If the master file exists and is older, use it
+            # If the temp file exists and is older, use it
+            # If the master does not exist, load the temp if it exists
+            # If the temp does not exist, load the master if it exists
+
+            if bTempFileIsValid and bMasterFileIsValid:
+                # Compare the ages and use the most recent
+                ordTempModTime = os.path.getmtime(self.storeName + b".tmp")
+                ordMasterModTime = os.path.getmtime(self.storeName)
+
+                if ordTempModTime > ordMasterModTime:
+                    self._LoadHashList(self.storeName + b".tmp", True)
+                else:
+                    self._LoadHashList(self.storeName)
+            elif bTempFileIsValid:
+                self._LoadHashList(self.storeName + b".tmp", True)
+            elif bMasterFileIsValid:
+                self._LoadHashList(self.storeName)
             else:
                 with open(self.storeName, "wb+") as nf:
                     pass
@@ -61,6 +62,13 @@ class CHashList():
 
 
         
+    def _LoadHashList(self, path, fromCheckpoint:bool=False):
+        with open(path, "rb+") as f:
+            pickled = EncryptionHelpers.Decrypt(f.read(), self.machineKey)
+            self.hashList = pickle.loads(pickled)
+            print("Loaded {} References {}".format(len(self.hashList), "from checkpoint" if fromCheckpoint else ""))
+
+
     def _SanitisePath(self, path):
         if platform.system() == "Windows":
             return (b'/'.join(path.split(b"\\")))
@@ -292,6 +300,11 @@ class CHashList():
                     pickled = pickle.dumps(self.hashList)
                     f.write(EncryptionHelpers.Encrypt(pickled, self.machineKey))
         else:
-            with open(self.storeName, "rb+") as f:
-                pickled = pickle.dumps(self.hashList)
-                f.write(EncryptionHelpers.Encrypt(pickled, self.machineKey))
+            if os.path.exists(self.storeName):
+                with open(self.storeName, "rb+") as f:
+                    pickled = pickle.dumps(self.hashList)
+                    f.write(EncryptionHelpers.Encrypt(pickled, self.machineKey))
+            else:
+                with open(self.storeName, "wb+") as f:
+                    pickled = pickle.dumps(self.hashList)
+                    f.write(EncryptionHelpers.Encrypt(pickled, self.machineKey))
