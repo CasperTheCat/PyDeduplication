@@ -1,3 +1,6 @@
+import sys
+import getpass
+
 vowels = ['a','e','i','o','u']
 
 def _AbbrWord(x: str) -> str:
@@ -15,6 +18,12 @@ def Abbreviate(x: str) -> str:
     abbrwords = [_AbbrWord(xs) for xs in x.split(" ")]
     return ' '.join(abbrwords)
     
+def GetPassword():
+    if sys.stdin.isatty():
+        return getpass.getpass()
+    else:
+        return sys.stdin.readline().rstrip()
+    return 
 
 if __name__ == "__main__":
     import sys
