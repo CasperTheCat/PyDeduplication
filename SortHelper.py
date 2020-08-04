@@ -120,7 +120,7 @@ if __name__ == "__main__":
 
             try:
                 if not hashlist.IsElementKnown(args.path.encode(), relp, ext, allowLongHashes=args.long_hash, silent=args.silent, useRawHashes=args.raw):
-                    #hashlist.AddElement(args.path.encode(), relp, ext, False, False)
+                    hashlist.AddElement(args.path.encode(), relp, ext, silent=args.silent, useLongHash=args.long_hash, useRawHashes=args.raw)
                     if not args.silent:
                         print("[CLEAR] File: {}".format(relp.decode()))
                     pass
