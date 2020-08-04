@@ -27,6 +27,27 @@ threeDimTypes = [b'rip', b'dds', b'fbx', b'tga', b'nif']
 dataTypes = [b'json', b'7z', b'zip']
 keyTypes = [b'pem']
 
+def GetTypes():
+    types = []
+    for i in hashlist.hashList:
+        types.append(i[3][1].decode())
+
+    return dict(Counter(types))
+
+
+def GetSizeByType():
+    types = {}
+    for i in hashlist.hashList:
+        t = i[3][1].decode()
+
+        if t in types:
+            types[t] += i[0]
+        else:
+            types[t] = i[0]
+
+    return types
+
+
 def ClassifyTypes():
     indexList = []
 
@@ -129,12 +150,37 @@ if __name__ == "__main__":
     classTypes, unclassedTypes, classIndices = ClassifyTypes()
     buckets = Bucketise(spread, scale)#, classIndices)
 
+
+
     rawFileSizeList = numpy.zeros(len(hashlist.hashList))
     
     for i in range(len(hashlist.hashList)):
         rawFileSizeList[i] = hashlist.hashList[i][0]
 
-    print(Counter(unclassedTypes))
+
+    #print(GetTypes())
+    typesOf = GetTypes()
+    typePD = pandas.DataFrame(typesOf.items(), index=typesOf.keys())
+    typePD.columns = ["Type", "Counts"]
+    typePD = typePD.sort_values("Counts")
+    #typePD = pandas.DataFrame.from_dict(GetTypes())
+
+    axpd = typePD.plot.pie(y="Counts", figsize=(16,16))
+    axpd.get_legend().remove()
+    fig = axpd.get_figure()
+    fig.savefig("BreakdownByCount.png")
+
+
+    sizesOf = GetSizeByType()
+    typePD = pandas.DataFrame(sizesOf.items(), index=sizesOf.keys())
+    typePD.columns = ["Type", "Counts"]
+    typePD = typePD.sort_values("Counts")
+    axpd = typePD.plot.pie(y="Counts", figsize=(16,16))
+    axpd.get_legend().remove()
+    fig = axpd.get_figure()
+    fig.savefig("BreakdownBySize.png")
+
+    #print(Counter(unclassedTypes))
 
     classPd = pandas.DataFrame(classTypes, index=["Types"])
     classAx = classPd.plot.barh(figsize=(16,9))
@@ -144,7 +190,6 @@ if __name__ == "__main__":
     #classAx.set_ylabel("Number of Files")
     classAx.set_xscale("symlog")
     classAx.set_xlabel('Number of Files')
-    
     classFig.savefig("classTypes.png")
 
     ax = plt.axes(label="World")
@@ -157,6 +202,28 @@ if __name__ == "__main__":
     ax.set_ylabel("Filesize (GiB) (Cumulative)")
     ax.set_xlabel("Files")
     fig.savefig('FileSize.png')
+
+    ax = plt.axes(label="World3")
+    ax.plot(numpy.arange(len(rawFileSizeList)), numpy.cumsum(numpy.sort(rawFileSizeList)))
+    fig = ax.get_figure()
+    ax.set_yscale("symlog")
+    ax.set_xlim(left=-(len(rawFileSizeList) // 10))
+    #ax.set_ylim(bottom=0)
+    #ax.set_xscale("symlog", linthresh=4*16)
+    ax.set_ylabel("Filesize (B) (Cumulative) (Log)")
+    ax.set_xlabel("Files")
+    fig.savefig('FileSizeLog.png')
+
+    ax = plt.axes(label="Worlds")
+    ax.plot(numpy.arange(len(rawFileSizeList)), numpy.sort(rawFileSizeList))
+    fig = ax.get_figure()
+    ax.set_yscale("symlog")
+    ax.set_xlim(left=-(len(rawFileSizeList) // 10))
+    #ax.set_ylim(bottom=0)
+    #ax.set_xscale("symlog", linthresh=4*16)
+    ax.set_ylabel("Filesize (B) (Cumulative)")
+    ax.set_xlabel("Files")
+    fig.savefig('FileSizeNonCumsum.png')
     
     ax = plt.axes(label="World2")
     ax.plot(numpy.arange(len(rawFileSizeList)), numpy.cumsum(rawFileSizeList) / (1024*1024*1024))
