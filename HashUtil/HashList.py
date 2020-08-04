@@ -244,7 +244,9 @@ class CHashList():
             # Get 'Short' Hash
             l_shortHash = self._ShortHashSelector(ele, l_FileSize, relPath, extension, useRawHashes)
 
-            if not self._DoesShortHashCollide(l_FileSize, (relPath, extension), l_shortHash, silent):
+            # Also silence this call when long hashes are allowed. We don't care if miss the call in that case
+            # If they are really different, the deep check will pick it up
+            if not self._DoesShortHashCollide(l_FileSize, (relPath, extension), l_shortHash, silent or allowLongHashes):
                 return False
 
             if allowLongHashes:
