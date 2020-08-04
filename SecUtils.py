@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 hashlist = HashList.CHashList()
 
 imageTypes = [b'jpg', b'jpeg', b'png', b'cr2', b'bmp']
+sourceImageTypes = [b"psd"]
 movingImageTypes = [b'gif', b'mp4', b'mkv', b'webm', b'mov']
 audioTypes = [b'flac', b'mp3', b'ogg', b'wav']
 textTypes = [b'txt', b'rtf', b'doc', b'docx', b'pdf', b'md', b'odt', b'tex']
@@ -29,6 +30,7 @@ def ClassifyTypes():
 
     types = {
         "image": 0,
+        "imageSources": 0,
         "movingImage": 0,
         "text": 0,
         "audio": 0,
@@ -68,6 +70,9 @@ def ClassifyTypes():
         elif il in dataTypes:
             types["data"] += 1
             indexType = 7
+        elif il in sourceImageTypes:
+            types["imageSources"] += 1
+            indexType = 8
         else:
             others.append(il)
 
@@ -107,17 +112,25 @@ def Bucketise(spread, scale, filterArray=None):
 if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description="Generates File Identities with an option to quarantine duplicates")
+    parser.add_argument('-t', '--hashtable', nargs=1, type=str, help='Location of hashtable')
     #parser.add_argument("--allow-quarantine", action="store_true")
     #parser.add_argument("--silent", action="store_true")
     #parser.add_argument("path", metavar="path", type=str)
 
     args = parser.parse_args()
 
-    spread = (1024 ** 2) * 10
+    hashlist = HashList.CHashList(args.hashtable[0].encode() if args.hashtable else None)
+
+    spread = (1024 ** 2) * 20
     scale = 1024
 
     classTypes, unclassedTypes, classIndices = ClassifyTypes()
     buckets = Bucketise(spread, scale)#, classIndices)
+
+    rawFileSizeList = numpy.zeros(len(hashlist.hashList))
+    
+    for i in range(len(hashlist.hashList)):
+        rawFileSizeList[i] = hashlist.hashList[i][0]
 
     print(Counter(unclassedTypes))
 
@@ -127,18 +140,43 @@ if __name__ == "__main__":
     #classFig, (classAx1, classAx2) = plt.subplots(2, 1, sharex=False, figsize=(16,18))
     #classAx1.barh(classPd.iloc[0:0], width=0.8)
     #classAx.set_ylabel("Number of Files")
+    classAx.set_xscale("symlog")
     classAx.set_xlabel('Number of Files')
     
     classFig.savefig("classTypes.png")
 
+    ax = plt.axes(label="World")
+    ax.plot(numpy.arange(len(rawFileSizeList)), numpy.cumsum(numpy.sort(rawFileSizeList)) / (1024*1024*1024))
+    fig = ax.get_figure()
+    #ax.set_yscale("symlog")
+    ax.set_xlim(left=-1)
+    #ax.set_ylim(bottom=0)
+    #ax.set_xscale("symlog", linthresh=4*16)
+    ax.set_ylabel("Filesize (GiB) (Cumulative)")
+    ax.set_xlabel("Files")
+    fig.savefig('FileSize.png')
+    
+    ax = plt.axes(label="World2")
+    ax.plot(numpy.arange(len(rawFileSizeList)), numpy.cumsum(rawFileSizeList) / (1024*1024*1024))
+    fig = ax.get_figure()
+    #ax.set_yscale("symlog")
+    ax.set_xlim(left=-1)
+    #ax.set_ylim(bottom=0)
+    #ax.set_xscale("symlog", linthresh=4*16)
+    ax.set_ylabel("Filesize (GiB) (Cumulative)")
+    ax.set_xlabel("Files")
+    fig.savefig('FileSizeUnsorted.png')
 
     pd = pandas.DataFrame(buckets)
-    ax = pd.plot(figsize=(16,9))
+    #ax = pd.plot(figsize=(16,9))
+    ax = plt.axes(label="Hi")
+    ax.plot(numpy.arange(len(buckets)), numpy.cumsum(buckets))
     fig = ax.get_figure()
-    ax.set_yscale("log")
+    #ax.set_yscale("symlog")
+    ax.set_xlim(left=-1)
     #ax.set_ylim(bottom=0)
-    ax.set_xscale("symlog")
-    ax.set_ylabel("Number of Files")
+    ax.set_xscale("symlog", linthresh=4*16)
+    ax.set_ylabel("Number of Files (Cumulative)")
     ax.set_xlabel('Filesize (KiB)')
     fig.savefig('out.png')
 
