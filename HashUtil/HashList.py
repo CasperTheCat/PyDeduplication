@@ -198,11 +198,6 @@ class CHashList():
 
 
     def _DoesHashCollide(self, iFileSize, name, hShortHash, hLongHash, silent):
-        # Is the file empty? It'll collide with every other empty file
-        if iFileSize == 0:
-            print("[EMPTY] File \"{}\" is empty".format(self._SanitisePath(name[0]).decode()))
-            return True
-
         for sz, shs, lhs, nm in self.hashList:
             if sz == iFileSize:
                 if (hShortHash != None and shs == hShortHash) or (hLongHash != None and lhs == hLongHash):
@@ -238,6 +233,11 @@ class CHashList():
         # Get file size
         fullPath = os.path.join(root, relPath)
         l_FileSize = os.path.getsize(fullPath)
+
+        # Is the file empty? It'll collide with every other empty file
+        if l_FileSize == 0:
+            print("[EMPTY] File \"{}\" is empty".format(self._SanitisePath(relPath).decode()))
+            return True
 
         with open(fullPath, "rb") as ele:
 
