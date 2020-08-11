@@ -14,9 +14,11 @@ def CompareTables(masterTable, comparisonTable):
 
     for sz, shs, lhs, nm in cTable.hashList:
         # Check if cElement's hash is known by mTable
-        if not mTable._DoesShortHashCollide(sz, nm, shs, True):
-            if not mTable._DoesLongHashCollide(sz, nm, lhs, False):
-                print("[ONLY][{}] {}".format(comparisonTable, nm[0]))
+        #if not mTable._DoesShortHashCollide(sz, nm, shs, True):
+        if not mTable._DoesLongHashCollide(sz, nm, lhs, True):
+            print("[ONLY][{}] {}".format(comparisonTable, nm[0]))
+        else:
+            print("[BOTH][----] {}".format(nm[0]))
     
 
 if __name__ == "__main__":
