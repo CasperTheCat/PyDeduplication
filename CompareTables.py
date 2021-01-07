@@ -9,7 +9,10 @@ from HashUtil import HashList
 def CompareTables(masterTable, comparisonTable):
     print("Comparing {} to {}".format(comparisonTable, masterTable))
 
+    print("Loading {}".format(masterTable.encode()))
     mTable = HashList.CHashList(masterTable.encode())
+
+    print("Loading {}".format(comparisonTable.encode()))
     cTable = HashList.CHashList(comparisonTable.encode())
 
     for sz, shs, lhs, nm in cTable.hashList:
