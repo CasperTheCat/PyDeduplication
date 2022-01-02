@@ -2,3 +2,5 @@ cryptography >= 2.9.2
 numpy >=1.18.5
 Pillow >=7.1.2
 ImageHash >= 4.2.1
+perception >= 0.5.2
+opencv >= 4.5.5

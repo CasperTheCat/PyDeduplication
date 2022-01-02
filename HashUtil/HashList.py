@@ -6,12 +6,15 @@ import cryptography
 import pickle
 import os
 import sys
+
+import perception
 from . import Utils
 from . import EncryptionHelpers
 import platform # Needed for the platform check
 
 # Perceptual Hashing (and others)
 import imagehash
+from perception import hashers
 
 # Better Arrays
 import numpy
@@ -25,7 +28,7 @@ PIL_supportedImageTypes = [b"bmp", b"gif", b"ico", b"jpeg", b"jpg", b"pcx", b"pn
 # I may occasionally add stuff to the format, so I'd like to avoid breaking it
 # The first version of this may break stuff though
 HASHLIST_VERSION_NUMBER = 3
-GLOBAL_HASH_SIZE = 64
+GLOBAL_HASH_SIZE = 16
 
 # About Versions
 # 1 is the defacto for the older format. It's actually unused since the old format doesn't have any numbering
@@ -41,6 +44,14 @@ class CHashList():
         self.machineKey = EncryptionHelpers.LoadMachineKeys()
         self.unserialisedBytes = 0
         self.capabilities = []
+
+        self.perceptualHasher = hashers.PHash(hash_size=GLOBAL_HASH_SIZE, highfreq_factor=128, freq_shift=8)
+        #self.perceptualHasher = hashers.WaveletHash(hash_size=GLOBAL_HASH_SIZE)
+
+        # Gins
+        self.ginShortHash = {}
+        self.ginLongHash = {}
+        self.ginPerceptual = {}
 
         #LoadHashes
         if path:
@@ -89,7 +100,45 @@ class CHashList():
             self.capabilities = SUPPORTED_CAPABILITIES
 
 
+    def _AddToGin(self, gin, key, value):
+        """Silly Helper function to avoid a bit of duplication"""
+        if key in gin:
+            gin[key].append(value)
+        else:
+            gin[key] = [value]
+
+    def _GenerateGINs(self):
+        # Generate
+        print("[INFO] Generate Inverted Indices")
+
+        # NUKE
+        self.ginShortHash = {}
+        self.ginLongHash = {}
+        self.ginPerceptual = {}
+
+        # For all hashes
+        for idx in range(len(self.hashList)):
+            self._AddToGINs(idx)
+
+
+    def _AddToGINs(self, value):
+        if not len(self.hashList) > value:
+            print("[WARN] Index {} exceeds HashLists length".format(value))
+            return
+        (sz, shs, lhs, nm, ph) = self.hashList[value]
+
+        # Add to Short GIN
+        if shs is not None:
+            self._AddToGin(self.ginShortHash, shs, value)
         
+        if lhs is not None:
+            self._AddToGin(self.ginLongHash, shs, value)
+
+        if ph is not None:
+            hashAsString = ph[0]
+            self._AddToGin(self.ginPerceptual, hashAsString, value)
+
+
     def _LoadHashList(self, path, fromCheckpoint:bool=False):
         with open(path, "rb+") as f:
             pickled = EncryptionHelpers.Decrypt(f.read(), self.machineKey)
@@ -116,7 +165,9 @@ class CHashList():
                 # Excuse me?
                 raise RuntimeError("Hashlist failed to load. This may be due to an outdated version")
             
-            print("Loaded {} References {}".format(len(self.hashList), "from checkpoint" if fromCheckpoint else ""))
+            print("[INFO] Loaded {} References {}".format(len(self.hashList), "from checkpoint" if fromCheckpoint else ""))
+
+            self._GenerateGINs()
 
 
     def _SanitisePath(self, path):
@@ -141,6 +192,7 @@ class CHashList():
     def Prune(self, path, dry_run=False, silent=True):
         # Prune the paths
         # While because immediately deleted paths will free an index
+        dirty = False
 
         idx = 0
         while idx < len(self.hashList): 
@@ -155,9 +207,13 @@ class CHashList():
                 if not dry_run:
                     # We free an index here, so we don't increment idx as it now refers to the old idx+1 anyway
                     del self.hashList[idx]
+                    dirty = True
                     continue
             
             idx += 1
+
+        if dirty:
+            self._GenerateGINs()
 
     def _GetHash(self, data):
         digest = hashes.Hash(hashes.SHA3_256(), backend=default_backend())
@@ -224,7 +280,9 @@ class CHashList():
             if fileExtension.lower() in PIL_supportedImageTypes:
                 # Hash
                 img = Image.open(fileObj)
-                perceptual = imagehash.phash(img, hash_size=GLOBAL_HASH_SIZE)
+                #perceptual = imagehash.phash(img, hash_size=GLOBAL_HASH_SIZE, highfreq_factor=256)
+                
+                perceptual = self.perceptualHasher.compute(img)#, "hex")
 
                 # Yes, return as type!
                 return (perceptual, img.width, img.height)
@@ -276,73 +334,150 @@ class CHashList():
         # Check here. Python can be slow with string cmps
         usingPerceptualHash = "EXT_PerceptualHash" in self.capabilities and not hPerceptualHash is None
 
+        # Lookup the indices directly
+        mode = "None"
 
-        for idx, (sz, shs, lhs, nm, ph) in enumerate(self.hashList):
-            ## Size has to match for a *hard* collision
-            if sz == iFileSize:
-                if (hShortHash != None and shs == hShortHash) or (hLongHash != None and lhs == hLongHash):
+        indices = []
+        if usingPerceptualHash:
+            temp = hPerceptualHash[0]
+            if temp in self.ginPerceptual:
+                indices = self.ginPerceptual[temp]
+                mode = "Perc"
+        elif hLongHash is not None:
+            if hLongHash in self.ginLongHash:
+                indices = self.ginLongHash[hLongHash]
+                mode = "Long"
+        elif hShortHash is not None:
+            if hShortHash in self.ginShortHash:
+                indices = self.ginShortHash[hShortHash]
+                mode = "Short"
+
+        if len(indices) > 0:
+            print("[INFO] FAST PATH: {}".format(mode))
+            for idx in indices:
+                # Check Collision Mode
+                sz, shs, lhs, nm, ph = self.hashList[idx]
+
+                if sz == iFileSize and ((hShortHash != None and shs == hShortHash) or (hLongHash != None and lhs == hLongHash)):
+                    ## Error Printing
                     if self._SanitisePath(name[0]) == nm[0]:
                         if not silent:
                             if not self.hasWarnedOwnDirectory:
-                                print("[{}] File collision on identical path. This directory has likely already been scanned somewhere.".format(Utils.Abbreviate("Warning")), file=sys.stderr)
+                                print("[WARN] File collision on identical path. This directory has likely already been scanned somewhere.", file=sys.stderr)
                                 self.hasWarnedOwnDirectory = True
                     else:
                         if not silent:
                             print("[COLLISION] File {} collided with {}".format(self._SanitisePath(name[0]), nm[0]))
 
-                    #if(hLongHash != None):
-                    #    print("LongHash Check")
-
                     return True
-            
+
+                elif usingPerceptualHash:
+                    if ph[0] == hPerceptualHash[0]:
+                        # TODO: Interim for V2
+                        # If a hash collides, but we are larger: don't return the collision
+                        # Instead. Warn and bin the old entry
+
+                        score = -1
+                        if hPerceptualHash[1] > ph[1]:
+                            score += 1
+                        if hPerceptualHash[2] > ph[2]:
+                            score += 1
+
+                        if score > 0:
+                            # We're just bigger!
+
+                            if not silent:
+                                print("[WARN][PH] Found larger image ({}) than original ({}): pruning list.".format(name[0], nm[0]), file=sys.stderr)
+
+                            # Prune the ph entry
+                            del self.hashList[idx]
+                            self._GenerateGINs()
+                            return False
+                        elif score == 0:
+                            # Cropped?
+                            # Warn and ret
+                            if not silent:
+                                print("[WARN][PH] Found potentially cropped image ({}): allowing both.".format(name), file=sys.stderr)
+                            return False
+                        else:
+                            if not silent:
+                                print("[COLLISION][PH] File {} ({}x{}) collided with {} ({}x{})".format(self._SanitisePath(name[0]), hPerceptualHash[1], hPerceptualHash[2], nm[0], ph[1], ph[2] ) )
+                            # TEMP
+                            return False
 
 
-            # Perceptual Hashes
-            if usingPerceptualHash and not ph is None:
-                # To explain: indices 1 and 2 are width and height respectively, so that sorting can be done later on which of these is larger.
-                # I care about keeping originals, not resized versions that happened to get sorted first on the fs
+        else:
+            # Fallback to the old method
+            print("[INFO] Fallback")
+            for idx, (sz, shs, lhs, nm, ph) in enumerate(self.hashList):
+                ## Size has to match for a *hard* collision
+                if sz == iFileSize:
+                    if (hShortHash != None and shs == hShortHash) or (hLongHash != None and lhs == hLongHash):
+                        if self._SanitisePath(name[0]) == nm[0]:
+                            if not silent:
+                                if not self.hasWarnedOwnDirectory:
+                                    print("[{}] File collision on identical path. This directory has likely already been scanned somewhere.".format(Utils.Abbreviate("Warning")), file=sys.stderr)
+                                    self.hasWarnedOwnDirectory = True
+                        else:
+                            if not silent:
+                                print("[COLLISION] File {} collided with {}".format(self._SanitisePath(name[0]), nm[0]))
+
+                        #if(hLongHash != None):
+                        #    print("LongHash Check")
+
+                        return True
                 
-                if ph[0] == hPerceptualHash[0]:
 
-                    # TODO: Interim for V2
-                    # If a hash collides, but we are larger: don't return the collision
-                    # Instead. Warn and bin the old entry
 
-                    score = -1
-                    if hPerceptualHash[1] > ph[1]:
-                        score += 1
-                    if hPerceptualHash[2] > ph[2]:
-                        score += 1
+                # Perceptual Hashes
+                if usingPerceptualHash and not ph is None:
+                    # To explain: indices 1 and 2 are width and height respectively, so that sorting can be done later on which of these is larger.
+                    # I care about keeping originals, not resized versions that happened to get sorted first on the fs
+                    #print("[DEBUG] Distance:", self.perceptualHasher.compute_distance(ph[0],hPerceptualHash[0]))
+                    if self.perceptualHasher.compute_distance(ph[0], hPerceptualHash[0]) < 0.1:
 
-                    if score > 0:
-                        # We're just bigger!
+                        # TODO: Interim for V2
+                        # If a hash collides, but we are larger: don't return the collision
+                        # Instead. Warn and bin the old entry
 
-                        if not silent:
-                            print("[{}][PH] Found larger image than original: pruning list.".format(Utils.Abbreviate("Warning")), file=sys.stderr)
+                        score = -1
+                        if hPerceptualHash[1] > ph[1]:
+                            score += 1
+                        if hPerceptualHash[2] > ph[2]:
+                            score += 1
 
-                        # Prune the ph entry
-                        del self.hashList[idx]
+                        if score > 0:
+                            # We're just bigger!
+
+                            if not silent:
+                                print("[WARN][PH] Found larger image ({}) than original ({}): pruning list.".format(name[0], nm[0]), file=sys.stderr)
+
+                            # Prune the ph entry
+                            #del self.hashList[idx]
+                            #self._GenerateGINs()
+                            return False
+                        elif score == 0:
+                            # Cropped?
+                            # Warn and ret
+                            if not silent:
+                                print("[WARN][PH] Found potentially cropped image ({}): allowing both.".format(name), file=sys.stderr)
+                            return False
+                        
+                        if self._SanitisePath(name[0]) == nm[0]:
+                            if not silent:
+                                if not self.hasWarnedOwnDirectory:
+                                    print("[{}] File collision on identical path. This directory has likely already been scanned somewhere.".format(Utils.Abbreviate("Warning")), file=sys.stderr)
+                                    self.hasWarnedOwnDirectory = True
+                        else:
+                            if not silent:
+                                print("[COLLISION][PH] File {} ({}x{}) collided with {} ({}x{})".format(self._SanitisePath(name[0]), hPerceptualHash[1], hPerceptualHash[2], nm[0], ph[1], ph[2] ) )
+
+                        # TEMP
                         return False
-                    elif score == 0:
-                        # Cropped?
-                        # Warn and ret
-                        if not silent:
-                            print("[{}][PH] Found potentially cropped image: allowing both.".format(Utils.Abbreviate("Warning")), file=sys.stderr)
-                        return False
-                    
-                    if self._SanitisePath(name[0]) == nm[0]:
-                        if not silent:
-                            if not self.hasWarnedOwnDirectory:
-                                print("[{}] File collision on identical path. This directory has likely already been scanned somewhere.".format(Utils.Abbreviate("Warning")), file=sys.stderr)
-                                self.hasWarnedOwnDirectory = True
-                    else:
-                        if not silent:
-                            print("[COLLISION][PH] File {} ({}x{}) collided with {} ({}x{})".format(self._SanitisePath(name[0]), hPerceptualHash[1], hPerceptualHash[2], nm[0], ph[1], ph[2] ) )
-
-                    return True
-            
-
+                
         return False
+
+
 
     def _DoesLongHashCollide(self, iFileSize, name, hLongHash, silent):
         return self._DoesHashCollide(iFileSize, name, None, hLongHash, silent)
@@ -377,8 +512,9 @@ class CHashList():
                 # Do the perceptual hash
                 l_phash = self._PerceptualHash(ele, l_FileSize, relPath, extension, useRawHashes)
 
-                if self._DoesPerceptualHashCollide(l_FileSize, (relPath, extension), l_phash, silent):
-                    return True
+                if l_phash is not None:
+                    if self._DoesPerceptualHashCollide(l_FileSize, (relPath, extension), l_phash, silent):
+                        return True
 
 
             # Get 'Short' Hash
@@ -424,6 +560,7 @@ class CHashList():
 
             # FORMAT: Size, SH, LH, (Rel+Type), PH
             self.hashList.append((l_FileSize, l_shortHash, l_longHash, (saneRelPath, extension), l_PercHash))
+            self._AddToGINs(len(self.hashList) - 1)
 
         self.unserialisedBytes += l_FileSize
 
