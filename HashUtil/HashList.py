@@ -10,6 +10,9 @@ from . import Utils
 from . import EncryptionHelpers
 import platform # Needed for the platform check
 
+# Perceptual Hashing (and others)
+import imagehash
+
 # Better Arrays
 import numpy
 
@@ -26,6 +29,8 @@ HASHLIST_VERSION_NUMBER = 2
 # About Versions
 # 1 is the defacto for the older format. It's actually unused since the old format doesn't have any numbering
 # 2 adds support for perceptual hashing when enabled
+
+SUPPORTED_CAPABILITIES = ["EXT_PerceptualHash"]
 
 
 class CHashList():
@@ -65,12 +70,22 @@ class CHashList():
             elif bMasterFileIsValid:
                 self._LoadHashList(self.storeName)
             else:
+                # CREATE
                 with open(self.storeName, "wb+") as nf:
                     pass
+
+                # Populate the capabilities
+                self.capabilities = SUPPORTED_CAPABILITIES
+                
         else:
             self.storeName = ".!HashList"
+            # CREATE
             with open(self.storeName, "wb+") as nf:
                 pass
+
+        
+            # Populate the capabilities
+            self.capabilities = SUPPORTED_CAPABILITIES
 
 
         
@@ -194,6 +209,31 @@ class CHashList():
         imgData = numpy.array(img)
         return self._GetHash(imgData[0:limit])
 
+    def _PerceptualHash(self, fileObj, fileSize, path, fileExtension, useRaw):
+        """Implements a perceptual hash"""
+        if useRaw:
+            return None
+
+        try:
+            if fileExtension.lower() in PIL_supportedImageTypes:
+                # Hash
+                img = Image.open(fileObj)
+                perceptual = imagehash.phash(img, hash_size=16)
+
+                # Yes, return as type!
+                return (perceptual, img.width, img.height)
+        except Exception as _:
+            print("[WARN] Possible Bad File: {}".format(path))
+        except KeyboardInterrupt as kbi:
+            raise kbi
+
+        # Fallback for this is a none type
+        # Binary or text files, for example, don't use hash type
+        # And make little sense to return anything else
+        return None
+
+
+
     def _ShortHashSelector(self, fileObj, fileSize, path, fileExtension, useRaw):
         if useRaw:
             return self._GetShortHash(fileObj, fileSize)
@@ -228,9 +268,10 @@ class CHashList():
     # We want to filter info about hard or soft collisions upwards (IE, we want information about *why* a collision occured)
     def _DoesHashCollide(self, iFileSize, name, hShortHash, hLongHash, silent, hPerceptualHash=None):
         # Check here. Python can be slow with string cmps
-        usingPerceptualHash = "EXT_PerceptualHash" in self.capabilities and hPerceptualHash is not None
+        usingPerceptualHash = "EXT_PerceptualHash" in self.capabilities and not hPerceptualHash is None
 
-        for sz, shs, lhs, nm, ph in self.hashList:
+
+        for idx, (sz, shs, lhs, nm, ph) in enumerate(self.hashList):
             ## Size has to match for a *hard* collision
             if sz == iFileSize:
                 if (hShortHash != None and shs == hShortHash) or (hLongHash != None and lhs == hLongHash):
@@ -248,9 +289,40 @@ class CHashList():
 
                     return True
             
+
+
             # Perceptual Hashes
-            if usingPerceptualHash:
-                if ph == hPerceptualHash:
+            if usingPerceptualHash and not ph is None:
+                # To explain: indices 1 and 2 are width and height respectively, so that sorting can be done later on which of these is larger.
+                # I care about keeping originals, not resized versions that happened to get sorted first on the fs
+                
+                if ph[0] == hPerceptualHash[0]:
+
+                    # TODO: Interim for V2
+                    # If a hash collides, but we are larger: don't return the collision
+                    # Instead. Warn and bin the old entry
+
+                    score = -1
+                    if hPerceptualHash[1] > ph[1]:
+                        score += 1
+                    if hPerceptualHash[2] > ph[2]:
+                        score += 1
+
+                    if score > 0:
+                        # We're just bigger!
+
+                        if not silent:
+                            print("[{}][PH] Found larger image than original: pruning list.".format(Utils.Abbreviate("Warning")), file=sys.stderr)
+
+                        # Prune the ph entry
+                        del self.hashList[idx]
+                        return False
+                    elif score == 0:
+                        # Cropped?
+                        # Warn and ret
+                        if not silent:
+                            print("[{}][PH] Found potentially cropped image: allowing both.".format(Utils.Abbreviate("Warning")), file=sys.stderr)
+                        return False
                     
                     if self._SanitisePath(name[0]) == nm[0]:
                         if not silent:
@@ -259,7 +331,7 @@ class CHashList():
                                 self.hasWarnedOwnDirectory = True
                     else:
                         if not silent:
-                            print("[COLLISION][PH] File {} collided with {}".format(self._SanitisePath(name[0]), nm[0]))
+                            print("[COLLISION][PH] File {} ({}x{}) collided with {} ({}x{})".format(self._SanitisePath(name[0]), hPerceptualHash[1], hPerceptualHash[2], nm[0], ph[1], ph[2] ) )
 
                     return True
             
@@ -271,6 +343,9 @@ class CHashList():
     
     def _DoesShortHashCollide(self, iFileSize, name, hShortHash, silent):
         return self._DoesHashCollide(iFileSize, name, hShortHash, None, silent)
+
+    def _DoesPerceptualHashCollide(self, iFileSize, name, hPerceptualHash, silent):
+        return self._DoesHashCollide(iFileSize, name, None, None, silent, hPerceptualHash)
     
     def IsElementKnown(self, root, relPath, extension, allowLongHashes=False,  silent=False, useRawHashes=False):
         """
@@ -291,6 +366,15 @@ class CHashList():
 
         with open(fullPath, "rb") as ele:
 
+            # Check the perceptual hash first if it's supported. Other the others *will* miss
+            if "EXT_PerceptualHash" in self.capabilities:
+                # Do the perceptual hash
+                l_phash = self._PerceptualHash(ele, l_FileSize, relPath, extension, useRawHashes)
+
+                if self._DoesPerceptualHashCollide(l_FileSize, (relPath, extension), l_phash, silent):
+                    return True
+
+
             # Get 'Short' Hash
             l_shortHash = self._ShortHashSelector(ele, l_FileSize, relPath, extension, useRawHashes)
 
@@ -303,7 +387,7 @@ class CHashList():
                 l_longHash = self._LongHashSelector(ele, l_FileSize, relPath, extension, useRawHashes)
 
                 if not self._DoesLongHashCollide(l_FileSize, (relPath, extension), l_longHash, silent):
-                    return False
+                    return False                
 
         return True
 
@@ -328,8 +412,12 @@ class CHashList():
             if useLongHash:
                 l_longHash = self._LongHashSelector(ele, l_FileSize, relPath, extension, useRawHashes)
                 
+            l_PercHash = None
+            if "EXT_PerceptualHash" in self.capabilities:
+                l_PercHash = self._PerceptualHash(ele, l_FileSize, relPath, extension, useRawHashes)
+
             # FORMAT: Size, SH, LH, (Rel+Type), PH
-            self.hashList.append((l_FileSize, l_shortHash, l_longHash, (saneRelPath, extension), None))
+            self.hashList.append((l_FileSize, l_shortHash, l_longHash, (saneRelPath, extension), l_PercHash))
 
         self.unserialisedBytes += l_FileSize
 

@@ -35,5 +35,6 @@ def test_LoadExistingPHTable():
     assert(len(mTable.hashList) == 3)
 
     # They should collide. We force the table to have both
-    assert(mTable[1][4] == mTable[2][4])
+    assert(mTable.hashList[1][4] is not None and mTable.hashList[1][4][0] == mTable.hashList[2][4][0]) 
+
     
