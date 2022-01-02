@@ -66,8 +66,6 @@ excludeDirs = [".git"]
 excludeFileTypes = [b"gitignore"]
 
 
-imageTypes = ['jpg', 'jpeg', 'png']
-
 if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description="Generates File Identities with an option to quarantine duplicates")

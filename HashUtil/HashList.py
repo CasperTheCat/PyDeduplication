@@ -18,6 +18,15 @@ from PIL import Image
 
 PIL_supportedImageTypes = [b"bmp", b"gif", b"ico", b"jpeg", b"jpg", b"pcx", b"png", b"ppm", b"tga", b"tiff", b"tif" b"dds", b"psd", b"dcx"]
 
+# Declare a version number for easier sorting of multiple versions of the format
+# I may occasionally add stuff to the format, so I'd like to avoid breaking it
+# The first version of this may break stuff though
+HASHLIST_VERSION_NUMBER = 2
+
+# About Versions
+# 1 is the defacto for the older format. It's actually unused since the old format doesn't have any numbering
+# 2 adds support for perceptual hashing when enabled
+
 
 class CHashList():
     def __init__(self, path = None):
@@ -25,6 +34,7 @@ class CHashList():
         self.hasWarnedOwnDirectory = False
         self.machineKey = EncryptionHelpers.LoadMachineKeys()
         self.unserialisedBytes = 0
+        self.capabilities = []
 
         #LoadHashes
         if path:
@@ -67,7 +77,24 @@ class CHashList():
     def _LoadHashList(self, path, fromCheckpoint:bool=False):
         with open(path, "rb+") as f:
             pickled = EncryptionHelpers.Decrypt(f.read(), self.machineKey)
-            self.hashList = pickle.loads(pickled)
+            
+            # Handle having an older file version
+            temp = pickle.loads(pickled)
+            if len(temp) == 1:
+                # Old version, skip doing versioning things entirely
+                # We also definitely have no extended behaviour
+                self.hashList = pickle.loads(pickled)
+            elif len(temp) == 2:
+                vn, self.hashList = temp
+
+                # Handle versioning
+                if vn > 1:
+                    self.capabilities.append("EXT_PerceptualHash")
+
+            else:
+                # Excuse me?
+                raise RuntimeError("Hashlist failed to load. This may be due to an outdated version")
+            
             print("Loaded {} References {}".format(len(self.hashList), "from checkpoint" if fromCheckpoint else ""))
 
 
@@ -81,7 +108,7 @@ class CHashList():
     #     self.hashList.append((sizeBytes, fhash, name))
 
     def CheckElementAtPath(self, name, szBytes):
-        for sz, shs, lhs, nm in self.hashList:
+        for sz, shs, lhs, nm, ph in self.hashList:
             if name[0] == nm[0]:
                 if sz == szBytes:
                     return True
@@ -97,7 +124,7 @@ class CHashList():
         idx = 0
         while idx < len(self.hashList): 
 
-            sz, shs, lhs, nm = self.hashList[idx]
+            sz, shs, lhs, nm, ph = self.hashList[idx]
             fullPath = os.path.join(path, nm[0])
 
             if not os.path.exists(fullPath):
@@ -197,8 +224,14 @@ class CHashList():
         return self._GetLongHash(fileObj)
 
 
-    def _DoesHashCollide(self, iFileSize, name, hShortHash, hLongHash, silent):
-        for sz, shs, lhs, nm in self.hashList:
+    # Refactor later!
+    # We want to filter info about hard or soft collisions upwards (IE, we want information about *why* a collision occured)
+    def _DoesHashCollide(self, iFileSize, name, hShortHash, hLongHash, silent, hPerceptualHash=None):
+        # Check here. Python can be slow with string cmps
+        usingPerceptualHash = "EXT_PerceptualHash" in self.capabilities and hPerceptualHash is not None
+
+        for sz, shs, lhs, nm, ph in self.hashList:
+            ## Size has to match for a *hard* collision
             if sz == iFileSize:
                 if (hShortHash != None and shs == hShortHash) or (hLongHash != None and lhs == hLongHash):
                     if self._SanitisePath(name[0]) == nm[0]:
@@ -214,6 +247,23 @@ class CHashList():
                     #    print("LongHash Check")
 
                     return True
+            
+            # Perceptual Hashes
+            if usingPerceptualHash:
+                if ph == hPerceptualHash:
+                    
+                    if self._SanitisePath(name[0]) == nm[0]:
+                        if not silent:
+                            if not self.hasWarnedOwnDirectory:
+                                print("[{}] File collision on identical path. This directory has likely already been scanned somewhere.".format(Utils.Abbreviate("Warning")), file=sys.stderr)
+                                self.hasWarnedOwnDirectory = True
+                    else:
+                        if not silent:
+                            print("[COLLISION][PH] File {} collided with {}".format(self._SanitisePath(name[0]), nm[0]))
+
+                    return True
+            
+
         return False
 
     def _DoesLongHashCollide(self, iFileSize, name, hLongHash, silent):
@@ -278,7 +328,8 @@ class CHashList():
             if useLongHash:
                 l_longHash = self._LongHashSelector(ele, l_FileSize, relPath, extension, useRawHashes)
                 
-            self.hashList.append((l_FileSize, l_shortHash, l_longHash, (saneRelPath, extension)))
+            # FORMAT: Size, SH, LH, (Rel+Type), PH
+            self.hashList.append((l_FileSize, l_shortHash, l_longHash, (saneRelPath, extension), None))
 
         self.unserialisedBytes += l_FileSize
 
@@ -297,18 +348,18 @@ class CHashList():
 
             if os.path.exists(path) and not overwrite: # Again after the first because we may have made a new file
                 with open(path, "rb+") as f:
-                    pickled = pickle.dumps(self.hashList)
+                    pickled = pickle.dumps((HASHLIST_VERSION_NUMBER, self.hashList))
                     f.write(EncryptionHelpers.Encrypt(pickled, self.machineKey))
             else:
                 with open(path, "wb+") as f:
-                    pickled = pickle.dumps(self.hashList)
+                    pickled = pickle.dumps((HASHLIST_VERSION_NUMBER, self.hashList))
                     f.write(EncryptionHelpers.Encrypt(pickled, self.machineKey))
         else:
             if os.path.exists(self.storeName):
                 with open(self.storeName, "rb+") as f:
-                    pickled = pickle.dumps(self.hashList)
+                    pickled = pickle.dumps((HASHLIST_VERSION_NUMBER, self.hashList))
                     f.write(EncryptionHelpers.Encrypt(pickled, self.machineKey))
             else:
                 with open(self.storeName, "wb+") as f:
-                    pickled = pickle.dumps(self.hashList)
+                    pickled = pickle.dumps((HASHLIST_VERSION_NUMBER, self.hashList))
                     f.write(EncryptionHelpers.Encrypt(pickled, self.machineKey))
