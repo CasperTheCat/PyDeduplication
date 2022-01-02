@@ -24,7 +24,8 @@ PIL_supportedImageTypes = [b"bmp", b"gif", b"ico", b"jpeg", b"jpg", b"pcx", b"pn
 # Declare a version number for easier sorting of multiple versions of the format
 # I may occasionally add stuff to the format, so I'd like to avoid breaking it
 # The first version of this may break stuff though
-HASHLIST_VERSION_NUMBER = 2
+HASHLIST_VERSION_NUMBER = 3
+GLOBAL_HASH_SIZE = 64
 
 # About Versions
 # 1 is the defacto for the older format. It's actually unused since the old format doesn't have any numbering
@@ -105,6 +106,11 @@ class CHashList():
                 # Handle versioning
                 if vn > 1:
                     self.capabilities.append("EXT_PerceptualHash")
+            elif len(temp) == 3:
+                vn, caps, self.hashList = temp
+
+                if vn >= 3:
+                    self.capabilities = caps
 
             else:
                 # Excuse me?
@@ -218,7 +224,7 @@ class CHashList():
             if fileExtension.lower() in PIL_supportedImageTypes:
                 # Hash
                 img = Image.open(fileObj)
-                perceptual = imagehash.phash(img, hash_size=16)
+                perceptual = imagehash.phash(img, hash_size=GLOBAL_HASH_SIZE)
 
                 # Yes, return as type!
                 return (perceptual, img.width, img.height)
@@ -436,18 +442,18 @@ class CHashList():
 
             if os.path.exists(path) and not overwrite: # Again after the first because we may have made a new file
                 with open(path, "rb+") as f:
-                    pickled = pickle.dumps((HASHLIST_VERSION_NUMBER, self.hashList))
+                    pickled = pickle.dumps((HASHLIST_VERSION_NUMBER, self.capabilities, self.hashList))
                     f.write(EncryptionHelpers.Encrypt(pickled, self.machineKey))
             else:
                 with open(path, "wb+") as f:
-                    pickled = pickle.dumps((HASHLIST_VERSION_NUMBER, self.hashList))
+                    pickled = pickle.dumps((HASHLIST_VERSION_NUMBER, self.capabilities, self.hashList))
                     f.write(EncryptionHelpers.Encrypt(pickled, self.machineKey))
         else:
             if os.path.exists(self.storeName):
                 with open(self.storeName, "rb+") as f:
-                    pickled = pickle.dumps((HASHLIST_VERSION_NUMBER, self.hashList))
+                    pickled = pickle.dumps((HASHLIST_VERSION_NUMBER, self.capabilities, self.hashList))
                     f.write(EncryptionHelpers.Encrypt(pickled, self.machineKey))
             else:
                 with open(self.storeName, "wb+") as f:
-                    pickled = pickle.dumps((HASHLIST_VERSION_NUMBER, self.hashList))
+                    pickled = pickle.dumps((HASHLIST_VERSION_NUMBER, self.capabilities, self.hashList))
                     f.write(EncryptionHelpers.Encrypt(pickled, self.machineKey))
