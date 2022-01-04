@@ -34,6 +34,7 @@ PERC_supportedVideoTypes = []#b"mp4", b"mov", b"ts", b"flv", b"mpeg", b"mkv"]
 HASHLIST_VERSION_NUMBER = 3
 GLOBAL_HASH_SIZE = 16
 HASH_CLIP = 64
+GLOBAL_LOG_THRESHOLD = 0.1
 
 # About Versions
 # 1 is the defacto for the older format. It's actually unused since the old format doesn't have any numbering
@@ -347,6 +348,11 @@ class CHashList():
 
 
     def _PerceptualHashScore(self, hPerceptualHash, ph, name, nm, delta):
+
+        # Return early. It's literally the same file
+        if self._SanitisePath(name[0]) == nm[0]:
+            return False
+
         score = -1
         if hPerceptualHash[1] > ph[1]:
             score += 1
@@ -456,12 +462,12 @@ class CHashList():
                             return False
                     elif name[1].lower() in PERC_supportedVideoTypes:
                         delta = self.percVideoHasher.compute_distance(ph[0], hPerceptualHash[0])
-                        if delta < 0.05 and not silent:
+                        if delta < GLOBAL_LOG_THRESHOLD and not silent:
                             return self._PerceptualHashScore(hPerceptualHash, ph, name, nm, delta)   
                             #print("[COLLISION][PH] VMatched {} vs {} at {:02%}".format(name[0], nm[0], 1 - numpy.max(delta)))
                     elif name[1].lower() in PIL_supportedImageTypes:
                         delta = self.perceptualHasher.compute_distance(ph[0], hPerceptualHash[0])
-                        if delta < 0.05 and not silent:
+                        if delta < GLOBAL_LOG_THRESHOLD and not silent:
                             return self._PerceptualHashScore(hPerceptualHash, ph, name, nm, delta)  
                             #print("[COLLISION][PH] IMatched {} vs {} at {:02%}".format(name[0], nm[0], 1 - numpy.max(delta)))
 
@@ -513,7 +519,7 @@ class CHashList():
                         elif name[1].lower() in PERC_supportedVideoTypes:
                             delta = self.percVideoHasher.compute_distance(ph[0], hPerceptualHash[0])
 
-                        if delta < 0.05 and not silent:
+                        if delta < GLOBAL_LOG_THRESHOLD and not silent:
                             #print("[COLLISION][PH] File {} ({}x{}) collided with {} ({}x{}) at {:02%}".format(self._SanitisePath(name[0]), hPerceptualHash[1], hPerceptualHash[2], nm[0], ph[1], ph[2], 1 - numpy.max(delta) ) )                            
                             return self._PerceptualHashScore(hPerceptualHash, ph, name, nm, delta)                          
                 
