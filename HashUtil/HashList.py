@@ -555,31 +555,33 @@ class CHashList():
 
         with open(fullPath, "rb") as ele:
 
-            # Check the perceptual hash first if it's supported. Other the others *will* miss
+            # Get 'Short' Hash
+            l_shortHash = self._ShortHashSelector(ele, l_FileSize, relPath, extension, useRawHashes)
+
+            # Also silence this call when long hashes are allowed. We don't care if miss the call in that case
+            # If they are really different, the deep check will pick it up
+            if self._DoesShortHashCollide(l_FileSize, (relPath, extension), l_shortHash, silent or allowLongHashes):
+                # Short collided, we want to do a full check if enabled
+                if allowLongHashes:
+                    l_longHash = self._LongHashSelector(ele, l_FileSize, relPath, extension, useRawHashes)
+
+                    if self._DoesLongHashCollide(l_FileSize, (relPath, extension), l_longHash, silent):
+                        # We definitely know this one, so let's return that
+                        return True
+                else:
+                    # Since we can't long hash check, get ready to return that we know the element
+                    return True
+
+            # If we are here, then we did not match short or long hashes
             if "EXT_PerceptualHash" in self.capabilities:
                 # Do the perceptual hash
                 l_phash = self._PerceptualHash(ele, l_FileSize, relPath, extension, useRawHashes, fullPath)
 
                 if l_phash is not None:
                     if self._DoesPerceptualHashCollide(l_FileSize, (relPath, extension), l_phash, silent):
-                        return True
+                        return True              
 
-
-            # Get 'Short' Hash
-            l_shortHash = self._ShortHashSelector(ele, l_FileSize, relPath, extension, useRawHashes)            
-
-            # Also silence this call when long hashes are allowed. We don't care if miss the call in that case
-            # If they are really different, the deep check will pick it up
-            if not self._DoesShortHashCollide(l_FileSize, (relPath, extension), l_shortHash, silent or allowLongHashes):
-                return False
-
-            if allowLongHashes:
-                l_longHash = self._LongHashSelector(ele, l_FileSize, relPath, extension, useRawHashes)
-
-                if not self._DoesLongHashCollide(l_FileSize, (relPath, extension), l_longHash, silent):
-                    return False                
-
-        return True
+        return False
 
     def AddElement(self, root, relPath, extension, silent=True, useLongHash=True, useRawHashes=False, disableCheckpoint=False):
         """
