@@ -6,18 +6,20 @@ import os
 import argparse
 import platform
 from HashUtil import HashList
+from HashUtil import Utils
 
 def MoveFileToQuarantine(r, fl, args):
-    p, t = fl
-    absp = os.path.join(r.encode(), p.encode())
-    movTarPart = os.path.join(os.path.abspath(os.path.join(args.path.encode(), "../.!Quarantine".encode())), t)
-    movTar = os.path.join(movTarPart, p.encode())
+    Utils.Quarantine(r, fl, args, "../.!Quarantine")
+    # p, t = fl
+    # absp = os.path.join(r.encode(), p.encode())
+    # movTarPart = os.path.join(os.path.abspath(os.path.join(args.path.encode(), "../.!Quarantine".encode())), t)
+    # movTar = os.path.join(movTarPart, p.encode())
 
-    if not os.path.exists(movTarPart):
-        os.makedirs(movTarPart)
+    # if not os.path.exists(movTarPart):
+    #     os.makedirs(movTarPart)
 
-    print("Moving {} to {}".format(absp, movTar))
-    shutil.move(absp, movTar)
+    # print("[INFO] Moving {} to {}".format(absp, movTar))
+    # shutil.move(absp, movTar)
 
 def IsDriveSafe(a,b):
     # Check path isn't our parent

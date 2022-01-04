@@ -6,27 +6,28 @@ import os
 import argparse
 import platform
 from HashUtil import HashList
+from HashUtil import Utils
 
 def MoveFileToQuarantine(root, fl, args):
-    
-    path, ext = fl
+    Utils.Quarantine(root, fl, args, "../.!Quarantine")
+    # path, ext = fl
 
-    absp = os.path.join(root, path)
+    # absp = os.path.join(root, path)
 
-    movTarPath = os.path.abspath(os.path.join(os.path.join(root, "../.!Quarantine".encode()), path))
-    print(movTarPath)
-    lxPath = b'/'.join(movTarPath.split(b"\\")) # Linuxise
-    splitPath = lxPath.split(b'/')
-    print(splitPath)
-    currentPath = b'/'.join(splitPath[0:-1])
-    print(currentPath)
-    #currentFile = split[-1]
+    # movTarPath = os.path.abspath(os.path.join(os.path.join(root, "../.!Quarantine".encode()), path))
+    # print(movTarPath)
+    # lxPath = b'/'.join(movTarPath.split(b"\\")) # Linuxise
+    # splitPath = lxPath.split(b'/')
+    # print(splitPath)
+    # currentPath = b'/'.join(splitPath[0:-1])
+    # print(currentPath)
+    # #currentFile = split[-1]
 
-    if not os.path.exists(currentPath):
-        os.makedirs(currentPath)
+    # if not os.path.exists(currentPath):
+    #     os.makedirs(currentPath)
 
-    print("Moving {} to {}".format(absp, movTarPath))
-    shutil.move(absp, movTarPath)
+    # print("[INFO] Moving {} to {}".format(absp, movTarPath))
+    # #shutil.move(absp, movTarPath)
 
 def IsDriveSafe(a,b):
     # Check path isn't our parent

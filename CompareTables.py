@@ -15,9 +15,11 @@ def CompareTables(masterTable, comparisonTable):
     print("Loading {}".format(comparisonTable.encode()))
     cTable = HashList.CHashList(comparisonTable.encode())
 
-    for sz, shs, lhs, nm in cTable.hashList:
+    for sz, shs, lhs, nm, ph in cTable.hashList:
         # Check if cElement's hash is known by mTable
         #if not mTable._DoesShortHashCollide(sz, nm, shs, True):
+        mTable._DoesPerceptualHashCollide(sz, nm, ph, False)
+        
         if not mTable._DoesLongHashCollide(sz, nm, lhs, True):
             print("[ONLY][{}] {}".format(comparisonTable, nm[0]))
         else:

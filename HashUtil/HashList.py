@@ -346,6 +346,36 @@ class CHashList():
         return self._GetLongHash(fileObj)
 
 
+    def _PerceptualHashScore(self, hPerceptualHash, ph, name, nm, delta):
+        score = -1
+        if hPerceptualHash[1] > ph[1]:
+            score += 1
+        if hPerceptualHash[2] > ph[2]:
+            score += 1
+
+        if score > 0:
+            print("[COLLISION][PH][LARGER] File {} ({}x{}) collided with {} ({}x{}) at {:02%}".format(self._SanitisePath(name[0]), hPerceptualHash[1], hPerceptualHash[2], nm[0], ph[1], ph[2], 1 - numpy.max(delta) ) )                            
+            # We're just bigger!
+
+            #if not silent:
+            #    print("[WARN][PH] Found larger image ({}) than original ({}): pruning list.".format(name[0], nm[0]), file=sys.stderr)
+
+            # Prune the ph entry
+            #del self.hashList[idx]
+            #self._GenerateGINs()
+            
+        elif score == 0:
+            print("[COLLISION][PH][CROPPED] File {} ({}x{}) collided with {} ({}x{}) at {:02%}".format(self._SanitisePath(name[0]), hPerceptualHash[1], hPerceptualHash[2], nm[0], ph[1], ph[2], 1 - numpy.max(delta) ) )                            
+            # Cropped?
+            # Warn and ret
+            #if not silent:
+            #    print("[WARN][PH] Found potentially cropped image ({}): allowing both.".format(name), file=sys.stderr)
+
+        else:
+            print("[COLLISION][PH][SMALLER] File {} ({}x{}) collided with {} ({}x{}) at {:02%}".format(self._SanitisePath(name[0]), hPerceptualHash[1], hPerceptualHash[2], nm[0], ph[1], ph[2], 1 - numpy.max(delta) ) )    
+
+        return False
+
     # Refactor later!
     # We want to filter info about hard or soft collisions upwards (IE, we want information about *why* a collision occured)
     def _DoesHashCollide(self, iFileSize, name, hShortHash, hLongHash, silent, hPerceptualHash=None):
@@ -395,6 +425,8 @@ class CHashList():
                         # If a hash collides, but we are larger: don't return the collision
                         # Instead. Warn and bin the old entry
 
+                        return self._PerceptualHashScore(hPerceptualHash, ph, name, nm, [0])   
+
                         score = -1
                         if hPerceptualHash[1] > ph[1]:
                             score += 1
@@ -408,8 +440,8 @@ class CHashList():
                                 print("[WARN][PH] Found larger image ({}) than original ({}): pruning list.".format(name[0], nm[0]), file=sys.stderr)
 
                             # Prune the ph entry
-                            del self.hashList[idx]
-                            self._GenerateGINs()
+                            #del self.hashList[idx]
+                            #self._GenerateGINs()
                             return False
                         elif score == 0:
                             # Cropped?
@@ -425,11 +457,13 @@ class CHashList():
                     elif name[1].lower() in PERC_supportedVideoTypes:
                         delta = self.percVideoHasher.compute_distance(ph[0], hPerceptualHash[0])
                         if delta < 0.05 and not silent:
-                            print("[COLLISION][PH] VMatched {} vs {} at {:02%}".format(name[0], nm[0], 1 - numpy.max(delta)))
+                            return self._PerceptualHashScore(hPerceptualHash, ph, name, nm, delta)   
+                            #print("[COLLISION][PH] VMatched {} vs {} at {:02%}".format(name[0], nm[0], 1 - numpy.max(delta)))
                     elif name[1].lower() in PIL_supportedImageTypes:
                         delta = self.perceptualHasher.compute_distance(ph[0], hPerceptualHash[0])
                         if delta < 0.05 and not silent:
-                            print("[COLLISION][PH] IMatched {} vs {} at {:02%}".format(name[0], nm[0], 1 - numpy.max(delta)))
+                            return self._PerceptualHashScore(hPerceptualHash, ph, name, nm, delta)  
+                            #print("[COLLISION][PH] IMatched {} vs {} at {:02%}".format(name[0], nm[0], 1 - numpy.max(delta)))
 
         else:
             # Fallback to the old method
@@ -480,44 +514,8 @@ class CHashList():
                             delta = self.percVideoHasher.compute_distance(ph[0], hPerceptualHash[0])
 
                         if delta < 0.05 and not silent:
-                            print("[COLLISION][PH] File {} ({}x{}) collided with {} ({}x{}) at {:02%}".format(self._SanitisePath(name[0]), hPerceptualHash[1], hPerceptualHash[2], nm[0], ph[1], ph[2], 1 - numpy.max(delta) ) )
-                            
-                            return False
-
-                            score = -1
-                            if hPerceptualHash[1] > ph[1]:
-                                score += 1
-                            if hPerceptualHash[2] > ph[2]:
-                                score += 1
-
-                            if score > 0:
-                                # We're just bigger!
-
-                                #if not silent:
-                                #    print("[WARN][PH] Found larger image ({}) than original ({}): pruning list.".format(name[0], nm[0]), file=sys.stderr)
-
-                                # Prune the ph entry
-                                #del self.hashList[idx]
-                                #self._GenerateGINs()
-                                return False
-                            elif score == 0:
-                                # Cropped?
-                                # Warn and ret
-                                #if not silent:
-                                #    print("[WARN][PH] Found potentially cropped image ({}): allowing both.".format(name), file=sys.stderr)
-                                return False
-                            
-                            if self._SanitisePath(name[0]) == nm[0]:
-                                if not silent:
-                                    if not self.hasWarnedOwnDirectory:
-                                        print("[{}] File collision on identical path. This directory has likely already been scanned somewhere.".format(Utils.Abbreviate("Warning")), file=sys.stderr)
-                                        self.hasWarnedOwnDirectory = True
-                            else:
-                                if not silent:
-                                    print("[INFO][PH] File {} ({}x{}) collided with {} ({}x{})".format(self._SanitisePath(name[0]), hPerceptualHash[1], hPerceptualHash[2], nm[0], ph[1], ph[2] ) )
-
-                            # TEMP
-                            return False
+                            #print("[COLLISION][PH] File {} ({}x{}) collided with {} ({}x{}) at {:02%}".format(self._SanitisePath(name[0]), hPerceptualHash[1], hPerceptualHash[2], nm[0], ph[1], ph[2], 1 - numpy.max(delta) ) )                            
+                            return self._PerceptualHashScore(hPerceptualHash, ph, name, nm, delta)                          
                 
         return False
 
