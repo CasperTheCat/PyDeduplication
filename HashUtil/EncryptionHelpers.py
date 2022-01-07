@@ -27,6 +27,37 @@ def _Hash(blob):
     digest.update(blob)
     return digest.finalize()
 
+def _GetCacheLocations():
+    if platform.system() == "Windows":
+        return os.path.join(os.environ["APPDATA"], "PyDeduplication")
+    else:
+        return os.path.join("~/.config", "PyDeduplication")
+    
+
+def _KeyCache(key):
+    # Get cache location
+    folderPath = _GetCacheLocations()
+
+    # Check if it exists
+    if not os.path.exists(folderPath):
+        os.makedirs(folderPath)
+
+        # Check again that the path exists
+        # We should have errored if that failed, though
+        if not os.path.exists(folderPath):
+            raise RuntimeError("Failed to create folder")
+
+    filePath = os.path.join(folderPath, "localkey")
+
+    if os.path.exists(filePath):
+        with open(filePath, "rb") as f:
+            return f.read()
+    else:
+        with open(filePath, "wb") as f:
+            f.write(key)
+
+    return key
+
 def _GetLinuxUUID():
     """Special function because invalidating hashtables on
 bios update sounds awful"""
@@ -57,7 +88,14 @@ bios update sounds awful"""
 
     # So... We have no keys...
     # Go on, UUID, make my day
-    return _Hash(uuid.UUID(int=uuid.getnode()).bytes)
+    key = _Hash(uuid.UUID(int=uuid.getnode()).bytes)
+    return _KeyCache(key)
+
+def _GetWindowsUUID():
+    # Generate and write
+    hashuuid =  _Hash(uuid.UUID(int=uuid.getnode()).bytes)
+
+    return _KeyCache(hashuuid)
 
 def LoadMachineKeys():
     """Load the key from the machine that we are on
@@ -65,7 +103,7 @@ Yes... I am aware that this is not really secure.
 It's just to prevent whoopsies. """
 
     if platform.system() == "Windows":
-        key = _Hash(uuid.UUID(int=uuid.getnode()).bytes)
+        key = _GetWindowsUUID()
     else:
         key = _GetLinuxUUID()
 
