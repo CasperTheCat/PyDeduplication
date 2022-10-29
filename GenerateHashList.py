@@ -122,7 +122,7 @@ if __name__ == "__main__":
             ext = f[len(f) - 1].lower().encode()
 
             try:
-                if not hashlist.IsElementKnown(pathAsBytes, relp, ext, allowLongHashes=((not args.fast) or (not args.short_hash)), silent=args.silent, useRawHashes=args.raw):
+                if not hashlist.IsElementKnown(pathAsBytes, relp, ext, allowLongHashes=(not (args.fast or args.short_hash)), silent=args.silent, useRawHashes=args.raw):
                     print("[ADDITION] File: {}".format(relp))
                     hashlist.AddElement(pathAsBytes, relp, ext, silent=args.silent, useLongHash=(not args.short_hash), useRawHashes=args.raw)
                 else:
