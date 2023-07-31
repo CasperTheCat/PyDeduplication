@@ -58,7 +58,7 @@ def GetExtension(filename: str):
 
 
 excludeDirs = [".git"]
-excludeFileTypes = [b"gitignore"]
+excludeFileTypes = [b"gitignore", b"gitmodules"]
 
 if __name__ == "__main__":
     

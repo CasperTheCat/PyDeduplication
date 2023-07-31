@@ -28,8 +28,22 @@ To skip a directory, place a `.skipfolder` file at the level you wish to ignore.
 The `.skipfolder` file instructs this program to ignore that folder, including all subfiles and subfolders.
 
 Directories named `.git` are automatically ignored, as are `.gitignore` files.
-*Please note that `.gitmodules` is not currently ignored as intended.* 
 
+
+Extensions
+---
+
+Extensions are supplied via the constructor of CHashList. They are set in the HashList at creation, and cannot current be changed. The reason for this limitation is that changing extensions would at best behave unexpected and at worst invalidate all current entries.
+
+*NOTE: Larger block sizes take priority over smaller sizes if multiple are specified.*
+
+Extension | Meaning
+--- | ---
+PerceptualHash | Enable the perceptual hash of images
+SHA512 | Switch from SHA3_256 to SHA512_256
+16MiBShortHashBlock | Expand the 4Ki block to 16Mi.
+1MiBShortHashBlock | Expand the 4Ki block to 1Mi
+IncludeFileMiddleInShortHash | Include the middle `BlockSize` in the hash
 
 
 
@@ -43,7 +57,7 @@ Flags | Short Flag | Purpose
 --fast | -f | Only use short hashes for comparing files
 --short-hash | -sh | Only generate short hashes when adding files (Implies --fast)
 --raw | -r | Hash the file as it appears on disk. Do not open the file container.
---silient | None | Don't print as much
+--silent | None | Don't print as much
 --hashtable | -t | Specify the hashtable name. Defaults to `.!HashList`
 --allow-quarantine | None | Enable moving files to `../.!Quarantine/`
 
