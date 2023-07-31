@@ -103,7 +103,16 @@ if __name__ == "__main__":
 
     encodedHashtable = args.hashtable[0].encode() if args.hashtable else None
 
-    hashlist = HashList.CHashList(encodedHashtable)
+    hashlist = HashList.CHashList(encodedHashtable, [
+        # Add Extensions Here
+        # For example:
+        #     EXT_1MiBShortHashBlock increases the short hash block size to 1M (From 4K)
+        #     EXT_16MiBShortHashBlock to 16M
+        #     EXT_IncludeFileMiddleInShortHash adds a third bin to the shortened hash
+        #     EXT_PerceptualHash enables perceptual hashing
+        #     EXT_SHA512 switches from SHA3_256 to SHA512_256 for compatibility reasons
+        #         Namely that 512_256 is easy to use in some environments
+    ])
 
     hashlist.Prune(pathAsBytes, dry_run=False, silent=args.silent)
 
@@ -124,7 +133,7 @@ if __name__ == "__main__":
             ext = f[len(f) - 1].lower().encode()
 
             try:
-                if not hashlist.IsElementKnown(pathAsBytes, relp, ext, allowLongHashes=(not (args.fast or args.short_hash)), silent=args.silent, useRawHashes=args.raw):
+                if not hashlist.IsElementKnown(pathAsBytes, relp, ext, allowLongHashes=(not (args.fast and args.short_hash)), silent=args.silent, useRawHashes=args.raw):
                     print("[ADDITION] File: {}".format(relp))
                     hashlist.AddElement(pathAsBytes, relp, ext, silent=args.silent, useLongHash=(not args.short_hash), useRawHashes=args.raw)
                 else:

@@ -11,6 +11,7 @@ import re
 import perception
 from . import Utils
 from . import EncryptionHelpers
+from .Extensions import *
 import platform # Needed for the platform check
 
 # Perceptual Hashing (and others)
@@ -39,12 +40,13 @@ GLOBAL_LOG_THRESHOLD = 0.1
 # About Versions
 # 1 is the defacto for the older format. It's actually unused since the old format doesn't have any numbering
 # 2 adds support for perceptual hashing when enabled
+# 3 adds capabilities
 
-SUPPORTED_CAPABILITIES = ["EXT_PerceptualHash"]
+SUPPORTED_CAPABILITIES = []
 
 
 class CHashList():
-    def __init__(self, path = None):
+    def __init__(self, path = None, additionalCapabilities = None):
         self.hashList = []
         self.hasWarnedOwnDirectory = False
         self.machineKey = EncryptionHelpers.LoadMachineKeys()
@@ -98,6 +100,7 @@ class CHashList():
 
                 # Populate the capabilities
                 self.capabilities = SUPPORTED_CAPABILITIES
+                self.capabilities += additionalCapabilities
                 
         else:
             self.storeName = ".!HashList"
@@ -108,6 +111,7 @@ class CHashList():
         
             # Populate the capabilities
             self.capabilities = SUPPORTED_CAPABILITIES
+            self.capabilities += additionalCapabilities
 
 
     def _AddToGin(self, gin, key, value):
@@ -171,7 +175,7 @@ class CHashList():
 
                 # Handle versioning
                 if vn > 1:
-                    self.capabilities.append("EXT_PerceptualHash")
+                    self.capabilities = []
             elif len(temp) == 3:
                 vn, caps, self.hashList = temp
 
@@ -232,8 +236,13 @@ class CHashList():
         if dirty:
             self._GenerateGINs()
 
+    def _GetHashProvider(self):
+        if EXT_SHA512 in self.capabilities:
+            return hashes.SHA512_256()
+        return hashes.SHA3_256()
+
     def _GetHash(self, data):
-        digest = hashes.Hash(hashes.SHA3_256(), backend=default_backend())
+        digest = hashes.Hash(self._GetHashProvider(), backend=default_backend())
 
         digest.update(data)
 
@@ -250,7 +259,7 @@ class CHashList():
 
     # Using 64MiB of ram, surely people have this much
     def _GetLongHash(self, fileObj):
-        digest = hashes.Hash(hashes.SHA3_256(), backend=default_backend())
+        digest = hashes.Hash(self._GetHashProvider(), backend=default_backend())
 
         fileObj.seek(0)
         for chunk in self._ChunksOf(fileObj):
@@ -263,25 +272,49 @@ class CHashList():
 
         fileObj.seek(0)
 
-        # Check that we can read two blocks
-        if fileSize <= 8192:
-            # Just read the entire file and reset seek
-            return self._GetLongHash(fileObj)
+        localBlockSize = self._GetShortHashBlockSize()
 
-        # assuming 4k block size
-        firstBlock = fileObj.read(4096)
+        if EXT_IncludeFileMiddleInShortHash in self.capabilities:
+            # Check that we can read two blocks
+            if fileSize <= localBlockSize * 3:
+                # Just read the entire file and reset seek
+                return self._GetLongHash(fileObj)
+            
+            FirstBlock = fileObj.read(localBlockSize)
 
-        # Seek end
-        fileObj.seek(-4096, 2)
+            # Compute middle offset
+            MidPoint = fileSize // 2
+            MidBlockPoint = MidPoint - (localBlockSize)
+            fileObj.seek(MidBlockPoint, 0)
+            MidBlock = fileObj.read(localBlockSize)
 
-        lastBlock = fileObj.read(4096)
+            fileObj.seek(-localBlockSize, 2)
+            LastBlock = fileObj.read(localBlockSize)
 
-        sHash = self._GetHash(firstBlock + lastBlock)
+            sHash = self._GetHash(FirstBlock + MidBlock + LastBlock)
 
-        # Reset seek
-        fileObj.seek(0) 
+            # Reset seek
+            fileObj.seek(0)
 
-        return sHash
+            return sHash
+        else:
+            # Check that we can read two blocks
+            if fileSize <= localBlockSize * 2:
+                # Just read the entire file and reset seek
+                return self._GetLongHash(fileObj)
+
+            firstBlock = fileObj.read(localBlockSize)
+
+            # Seek end
+            fileObj.seek(-localBlockSize, 2)
+            lastBlock = fileObj.read(localBlockSize)
+
+            sHash = self._GetHash(firstBlock + lastBlock)
+
+            # Reset seek
+            fileObj.seek(0) 
+
+            return sHash
 
     def _PILHash(self, fileObj, limit=None):
         img = Image.open(fileObj)
@@ -315,7 +348,14 @@ class CHashList():
         # And make little sense to return anything else
         return None
 
+    def _GetShortHashBlockSize(self):
+        if EXT_16MiBShortHashBlock in self.capabilities:
+            return 16 * 1024 * 1024
 
+        if EXT_1MiBShortHashBlock in self.capabilities:
+            return 1024 * 1024
+
+        return 4096
 
     def _ShortHashSelector(self, fileObj, fileSize, path, fileExtension, useRaw):
         if useRaw:
@@ -324,7 +364,7 @@ class CHashList():
         # Use Selector
         try:
             if fileExtension.lower() in PIL_supportedImageTypes:
-                return self._PILHash(fileObj, 4096)
+                return self._PILHash(fileObj, self._GetShortHashBlockSize())
         except Exception as _:
             print("[WARN] Possible Bad File: {}".format(path))
         except KeyboardInterrupt as kbi:
@@ -386,7 +426,7 @@ class CHashList():
     # We want to filter info about hard or soft collisions upwards (IE, we want information about *why* a collision occured)
     def _DoesHashCollide(self, iFileSize, name, hShortHash, hLongHash, silent, hPerceptualHash=None):
         # Check here. Python can be slow with string cmps
-        usingPerceptualHash = "EXT_PerceptualHash" in self.capabilities and not hPerceptualHash is None
+        usingPerceptualHash = EXT_PerceptualHash in self.capabilities and not hPerceptualHash is None
 
         # Lookup the indices directly
         mode = "None"
@@ -573,7 +613,7 @@ class CHashList():
                     return True
 
             # If we are here, then we did not match short or long hashes
-            if "EXT_PerceptualHash" in self.capabilities:
+            if EXT_PerceptualHash in self.capabilities and allowLongHashes:
                 # Do the perceptual hash
                 l_phash = self._PerceptualHash(ele, l_FileSize, relPath, extension, useRawHashes, fullPath)
 
@@ -605,7 +645,7 @@ class CHashList():
                 l_longHash = self._LongHashSelector(ele, l_FileSize, relPath, extension, useRawHashes)
                 
             l_PercHash = None
-            if "EXT_PerceptualHash" in self.capabilities:
+            if EXT_PerceptualHash in self.capabilities:
                 l_PercHash = self._PerceptualHash(ele, l_FileSize, relPath, extension, useRawHashes, fullPath)
 
             # FORMAT: Size, SH, LH, (Rel+Type), PH

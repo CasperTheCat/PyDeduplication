@@ -1,0 +1,5 @@
+EXT_PerceptualHash = "EXT_PerceptualHash"
+EXT_SHA512 = "EXT_SHA512"
+EXT_16MiBShortHashBlock = "EXT_16MiBShortHashBlock"
+EXT_1MiBShortHashBlock = "EXT_1MiBShortHashBlock"
+EXT_IncludeFileMiddleInShortHash = "EXT_IncludeFileMiddleInShortHash"
