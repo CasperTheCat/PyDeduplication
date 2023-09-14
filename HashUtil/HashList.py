@@ -113,8 +113,6 @@ class CHashList():
             self.capabilities = SUPPORTED_CAPABILITIES
             self.capabilities += additionalCapabilities
 
-        self.capabilities.append("EXT_SHA512")
-
 
     def _AddToGin(self, gin, key, value):
         """Silly Helper function to avoid a bit of duplication"""
