@@ -7,6 +7,7 @@ import argparse
 import platform
 from HashUtil import HashList
 from HashUtil import Utils
+from HashUtil import Extensions
 
 def MoveFileToQuarantine(r, fl, args):
     Utils.Quarantine(r, fl, args, "../.!Quarantine")
@@ -56,6 +57,29 @@ def IsDriveSafe(a,b):
 def GetExtension(filename: str):
     return filename.split(".")[-1].lower().encode()
 
+def GetHashExtensions(arguments: argparse.Namespace):
+    HashExts = []
+
+    if arguments.large_block:
+        print("[EXTENSION] 16MiB Block Enabled")
+        HashExts.append(Extensions.EXT_16MiBShortHashBlock)
+    elif arguments.medium_block:
+        print("[EXTENSION] 1MiB Block Enabled")
+        HashExts.append(Extensions.EXT_1MiBShortHashBlock)
+
+    if arguments.perceptual:
+        print("[EXTENSION] Perceptual Hashing Enabled")
+        HashExts.append(Extensions.EXT_PerceptualHash)
+
+    if arguments.sha512:
+        print("[EXTENSION] SHA512 Enabled")
+        HashExts.append(Extensions.EXT_SHA512)
+
+    if arguments.centred_short_hash:
+        print("[EXTENSION] Centred Short Hash Block Enabled")
+        HashExts.append(Extensions.EXT_IncludeFileMiddleInShortHash)
+
+    return HashExts
 
 excludeDirs = [".git"]
 excludeFileTypes = [b"gitignore", b"gitmodules"]
@@ -69,6 +93,11 @@ if __name__ == "__main__":
     parser.add_argument("-r", "--raw", action="store_true", help='Prevent hashing the contents of files; instead hash the container')
     parser.add_argument("--silent", action="store_true", help='Silence output')
     parser.add_argument('-t', '--hashtable', nargs=1, type=str, help='Location of hashtable')
+    parser.add_argument('--sha512', action="store_true", help='Use SHA512_256 over SHA3_256')
+    parser.add_argument('-p', '--perceptual', action="store_true", help='Use Perceptual Hashing')
+    parser.add_argument('-ch', '--centred-short-hash', action="store_true", help='Add a third, infixed hash block for short hash')
+    parser.add_argument('-mb', '--medium-block', action="store_true", help='Use 1MiB short hash block size, up from 4Ki')
+    parser.add_argument('-lb', '--large-block', action="store_true", help='Use 16MiB short hash block size, up from 4Ki or 1Mi')
     parser.add_argument("path", metavar="path", type=str)
 
     args = parser.parse_args()
@@ -103,17 +132,9 @@ if __name__ == "__main__":
 
     encodedHashtable = args.hashtable[0].encode() if args.hashtable else None
 
-    hashlist = HashList.CHashList(encodedHashtable, [
-        # Add Extensions Here
-        # For example:
-        #     EXT_1MiBShortHashBlock increases the short hash block size to 1M (From 4K)
-        #     EXT_16MiBShortHashBlock to 16M
-        #     EXT_IncludeFileMiddleInShortHash adds a third bin to the shortened hash
-        #     EXT_PerceptualHash enables perceptual hashing
-        #     EXT_SHA512 switches from SHA3_256 to SHA512_256 for compatibility reasons
-        #         Namely that 512_256 is easy to use in some environments
-    ])
+    WantedExtensions = GetHashExtensions(args)
 
+    hashlist = HashList.CHashList(encodedHashtable, WantedExtensions)
     hashlist.Prune(pathAsBytes, dry_run=False, silent=args.silent)
 
     for r, d, p in os.walk(args.path):

@@ -113,6 +113,8 @@ class CHashList():
             self.capabilities = SUPPORTED_CAPABILITIES
             self.capabilities += additionalCapabilities
 
+        self.capabilities.append("EXT_SHA512")
+
 
     def _AddToGin(self, gin, key, value):
         """Silly Helper function to avoid a bit of duplication"""
@@ -447,7 +449,7 @@ class CHashList():
                 mode = "Short"
 
         if len(indices) > 0:
-            print("[INFO] FAST PATH: {}".format(mode))
+            #print("[INFO] FAST PATH: {}".format(mode))
             for idx in indices:
                 # Check Collision Mode
                 sz, shs, lhs, nm, ph = self.hashList[idx]
@@ -528,7 +530,7 @@ class CHashList():
                 if not len(indices) > 0:
                     return False
 
-                print("[INFO] Fallback: {}".format(mode))
+                #print("[INFO] Fallback: {}".format(mode))
                 for idx in indices:
                     (sz, shs, lhs, nm, ph) = self.hashList[idx]
                     # ## Size has to match for a *hard* collision
