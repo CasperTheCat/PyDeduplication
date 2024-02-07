@@ -66,6 +66,9 @@ def GetHashExtensions(arguments: argparse.Namespace):
     elif arguments.medium_block:
         print("[EXTENSION] 1MiB Block Enabled")
         HashExts.append(Extensions.EXT_1MiBShortHashBlock)
+    elif arguments.medium_block:
+        print("[EXTENSION] 1MiB Block Enabled")
+        HashExts.append(Extensions.EXT_128KiBShortHashBlock)
 
     if arguments.perceptual:
         print("[EXTENSION] Perceptual Hashing Enabled")
@@ -96,6 +99,7 @@ if __name__ == "__main__":
     parser.add_argument('--sha512', action="store_true", help='Use SHA512_256 over SHA3_256')
     parser.add_argument('-p', '--perceptual', action="store_true", help='Use Perceptual Hashing')
     parser.add_argument('-ch', '--centred-short-hash', action="store_true", help='Add a third, infixed hash block for short hash')
+    parser.add_argument('-zb', '--zfs-block', action="store_true", help='Use 128KiB short hash block size to align to common ZFS parameters, up from 4Ki')
     parser.add_argument('-mb', '--medium-block', action="store_true", help='Use 1MiB short hash block size, up from 4Ki')
     parser.add_argument('-lb', '--large-block', action="store_true", help='Use 16MiB short hash block size, up from 4Ki or 1Mi')
     parser.add_argument("path", metavar="path", type=str)

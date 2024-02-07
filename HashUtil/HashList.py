@@ -355,7 +355,10 @@ class CHashList():
         if EXT_1MiBShortHashBlock in self.capabilities:
             return 1024 * 1024
 
-        return 4096
+        if EXT_128KiBShortHashBlock in self.capabilities:
+            return 128 * 1024
+
+        return 4 * 1024
 
     def _ShortHashSelector(self, fileObj, fileSize, path, fileExtension, useRaw):
         if useRaw:
