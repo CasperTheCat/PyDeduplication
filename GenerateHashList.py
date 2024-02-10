@@ -66,8 +66,8 @@ def GetHashExtensions(arguments: argparse.Namespace):
     elif arguments.medium_block:
         print("[EXTENSION] 1MiB Block Enabled")
         HashExts.append(Extensions.EXT_1MiBShortHashBlock)
-    elif arguments.medium_block:
-        print("[EXTENSION] 1MiB Block Enabled")
+    elif arguments.zfs_block:
+        print("[EXTENSION] 128KiB Block Enabled")
         HashExts.append(Extensions.EXT_128KiBShortHashBlock)
 
     if arguments.perceptual:
