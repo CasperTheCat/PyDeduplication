@@ -37,6 +37,10 @@ GLOBAL_HASH_SIZE = 16
 HASH_CLIP = 64
 GLOBAL_LOG_THRESHOLD = 0.1
 
+# Default the fs record to 4096 bytes
+# Increase it only for ZFS-blocks (While they do vary, 128K is safe, and 16K records will just be fully hashed as a short hash)
+DEFAULT_RECORD_SIZE = 4096
+
 # About Versions
 # 1 is the defacto for the older format. It's actually unused since the old format doesn't have any numbering
 # 2 adds support for perceptual hashing when enabled
@@ -268,6 +272,34 @@ class CHashList():
 
         return digest.finalize()
 
+    def _GetEffectiveRecordSize(self):
+        if EXT_128KiBShortHashBlock in self.capabilities:
+            return 128 * 1024
+        return 4 * 1024
+
+    def _AlignBlockOffset(self, blockStart):
+        """Attempt to align the block to the record boundaries"""
+        RecordSize = self._GetEffectiveRecordSize()
+        FileBlockMod = blockStart // RecordSize
+        FileBlockMod *= RecordSize
+
+        return FileBlockMod
+
+    def _GetCentredBlockOffset(self, fileSize, blockSize):
+        """Get the centred block offset"""
+        MidPoint = fileSize // 2
+        MidBlockPoint = MidPoint - (blockSize // 2)
+
+        return self._AlignBlockOffset(MidBlockPoint)
+
+    def _GetFinalBlockOffset(self, fileSize, blockSize):
+        """Get the final block offset and read amount"""
+        AlignedBlockStart = self._AlignBlockOffset(fileSize - blockSize)
+        ReadToEndBytes = fileSize - AlignedBlockStart
+
+        return AlignedBlockStart, ReadToEndBytes
+
+
     def _GetShortHash(self, fileObj, fileSize):
 
         fileObj.seek(0)
@@ -275,21 +307,24 @@ class CHashList():
         localBlockSize = self._GetShortHashBlockSize()
 
         if EXT_IncludeFileMiddleInShortHash in self.capabilities:
-            # Check that we can read two blocks
+            # Check that we can read three blocks
             if fileSize <= localBlockSize * 3:
                 # Just read the entire file and reset seek
                 return self._GetLongHash(fileObj)
             
+            ## This should always be aligned: it's starting from 0
             FirstBlock = fileObj.read(localBlockSize)
 
-            # Compute middle offset
-            MidPoint = fileSize // 2
-            MidBlockPoint = MidPoint - (localBlockSize)
+            # Compute middle offset and align it
+            MidBlockPoint = self._GetCentredBlockOffset(fileSize, localBlockSize)
             fileObj.seek(MidBlockPoint, 0)
             MidBlock = fileObj.read(localBlockSize)
 
-            fileObj.seek(-localBlockSize, 2)
-            LastBlock = fileObj.read(localBlockSize)
+            # Final Block. Align to block, then read extra if required
+            FinalBlockOffset, FinalRead = self._GetFinalBlockOffset(fileSize, localBlockSize)
+            print("Reading from {} by {} (FS: {})".format(FinalBlockOffset, FinalRead, fileSize))
+            fileObj.seek(FinalBlockOffset, 0)
+            LastBlock = fileObj.read(FinalRead)
 
             sHash = self._GetHash(FirstBlock + MidBlock + LastBlock)
 
@@ -579,7 +614,7 @@ class CHashList():
     def _DoesPerceptualHashCollide(self, iFileSize, name, hPerceptualHash, silent):
         return self._DoesHashCollide(iFileSize, name, None, None, silent, hPerceptualHash)
     
-    def IsElementKnown(self, root, relPath, extension, allowLongHashes=False,  silent=False, useRawHashes=False):
+    def IsElementKnownWithHash(self, root, relPath, extension, allowLongHashes=False,  silent=False, useRawHashes=False):
         """
         Check Element against internal file list
 
@@ -594,26 +629,31 @@ class CHashList():
         # Is the file empty? It'll collide with every other empty file
         if l_FileSize == 0:
             print("[EMPTY] File {} is empty".format(self._SanitisePath(relPath)))
-            return True
+            return True, None, None, None
+
+        # Define as None here to pass back if available
+        l_ShortHash = None
+        l_LongHash = None
+        l_phash = None
 
         with open(fullPath, "rb") as ele:
 
             # Get 'Short' Hash
-            l_shortHash = self._ShortHashSelector(ele, l_FileSize, relPath, extension, useRawHashes)
+            l_ShortHash = self._ShortHashSelector(ele, l_FileSize, relPath, extension, useRawHashes)
 
             # Also silence this call when long hashes are allowed. We don't care if miss the call in that case
             # If they are really different, the deep check will pick it up
-            if self._DoesShortHashCollide(l_FileSize, (relPath, extension), l_shortHash, silent or allowLongHashes):
+            if self._DoesShortHashCollide(l_FileSize, (relPath, extension), l_ShortHash, silent or allowLongHashes):
                 # Short collided, we want to do a full check if enabled
                 if allowLongHashes:
-                    l_longHash = self._LongHashSelector(ele, l_FileSize, relPath, extension, useRawHashes)
+                    l_LongHash = self._LongHashSelector(ele, l_FileSize, relPath, extension, useRawHashes)
 
-                    if self._DoesLongHashCollide(l_FileSize, (relPath, extension), l_longHash, silent):
+                    if self._DoesLongHashCollide(l_FileSize, (relPath, extension), l_LongHash, silent):
                         # We definitely know this one, so let's return that
-                        return True
+                        return True, l_ShortHash, l_LongHash, l_phash
                 else:
                     # Since we can't long hash check, get ready to return that we know the element
-                    return True
+                    return True, l_ShortHash, l_LongHash, l_phash
 
             # If we are here, then we did not match short or long hashes
             if EXT_PerceptualHash in self.capabilities and allowLongHashes:
@@ -622,11 +662,23 @@ class CHashList():
 
                 if l_phash is not None:
                     if self._DoesPerceptualHashCollide(l_FileSize, (relPath, extension), l_phash, silent):
-                        return True              
+                        return True, l_ShortHash, l_LongHash, l_phash
 
-        return False
+        return False, l_ShortHash, l_LongHash, l_phash
 
-    def AddElement(self, root, relPath, extension, silent=True, useLongHash=True, useRawHashes=False, disableCheckpoint=False):
+    def IsElementKnown(self, root, relPath, extension, allowLongHashes=False,  silent=False, useRawHashes=False):
+        """
+        Check Element against internal file list
+
+        Raises:
+            IOError
+        """
+
+        IsKnown, _, _, _ = self.IsElementKnownWithHash(root, relPath, extension, allowLongHashes,  silent, useRawHashes)
+
+        return IsKnown
+
+    def AddElement(self, root, relPath, extension, silent=True, useLongHash=True, useRawHashes=False, disableCheckpoint=False, PrecomputedShortHash=None, PrecomputedLongHash=None, PrecomputedPerceptualHash=None):
         """
             Root = Base Directory
             RelPath = Relative offset from Base
@@ -640,19 +692,24 @@ class CHashList():
         fullPath = os.path.join(root, relPath)
         l_FileSize = os.path.getsize(fullPath)
 
-        with open(fullPath, "rb") as ele:
-            l_shortHash = self._ShortHashSelector(ele, l_FileSize, relPath, extension, useRawHashes)
-            l_longHash = None
+        # Pass these into the local vars
+        # Long hash will be passed if one was precomputed even if useLongHash is false
+        l_ShortHash = PrecomputedShortHash
+        l_LongHash = PrecomputedLongHash
+        l_PercHash = PrecomputedPerceptualHash
 
-            if useLongHash:
-                l_longHash = self._LongHashSelector(ele, l_FileSize, relPath, extension, useRawHashes)
+        with open(fullPath, "rb") as ele:
+            if l_ShortHash is None:
+                l_ShortHash = self._ShortHashSelector(ele, l_FileSize, relPath, extension, useRawHashes)
+
+            if useLongHash and l_LongHash is None:
+                l_LongHash = self._LongHashSelector(ele, l_FileSize, relPath, extension, useRawHashes)
                 
-            l_PercHash = None
-            if EXT_PerceptualHash in self.capabilities:
+            if EXT_PerceptualHash in self.capabilities and l_PercHash is None:
                 l_PercHash = self._PerceptualHash(ele, l_FileSize, relPath, extension, useRawHashes, fullPath)
 
             # FORMAT: Size, SH, LH, (Rel+Type), PH
-            self.hashList.append((l_FileSize, l_shortHash, l_longHash, (saneRelPath, extension), l_PercHash))
+            self.hashList.append((l_FileSize, l_ShortHash, l_LongHash, (saneRelPath, extension), l_PercHash))
             self._AddToGINs(len(self.hashList) - 1)
 
         self.unserialisedBytes += l_FileSize

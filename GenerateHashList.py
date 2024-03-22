@@ -158,9 +158,10 @@ if __name__ == "__main__":
             ext = f[len(f) - 1].lower().encode()
 
             try:
-                if not hashlist.IsElementKnown(pathAsBytes, relp, ext, allowLongHashes=(not (args.fast and args.short_hash)), silent=args.silent, useRawHashes=args.raw):
+                IsElementKnown, ComputedShortHash, ComputedLongHash, ComputedPerceptualHash = hashlist.IsElementKnownWithHash(pathAsBytes, relp, ext, allowLongHashes=(not (args.fast and args.short_hash)), silent=args.silent, useRawHashes=args.raw)
+                if not IsElementKnown:
                     print("[ADDITION] File: {}".format(relp))
-                    hashlist.AddElement(pathAsBytes, relp, ext, silent=args.silent, useLongHash=(not args.short_hash), useRawHashes=args.raw)
+                    hashlist.AddElement(pathAsBytes, relp, ext, silent=args.silent, useLongHash=(not args.short_hash), useRawHashes=args.raw, PrecomputedShortHash=ComputedShortHash, PrecomputedLongHash=ComputedLongHash, PrecomputedPerceptualHash=ComputedPerceptualHash)
                 else:
                     if args.allow_quarantine:
                         MoveFileToQuarantine(r, (fi, ext), args)  
