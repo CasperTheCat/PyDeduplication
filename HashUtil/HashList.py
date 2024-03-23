@@ -322,7 +322,7 @@ class CHashList():
 
             # Final Block. Align to block, then read extra if required
             FinalBlockOffset, FinalRead = self._GetFinalBlockOffset(fileSize, localBlockSize)
-            print("Reading from {} by {} (FS: {})".format(FinalBlockOffset, FinalRead, fileSize))
+            #print("Reading from {} by {} (FS: {})".format(FinalBlockOffset, FinalRead, fileSize))
             fileObj.seek(FinalBlockOffset, 0)
             LastBlock = fileObj.read(FinalRead)
 
