@@ -87,7 +87,40 @@ def GetHashExtensions(arguments: argparse.Namespace):
 excludeDirs = [".git"]
 excludeFileTypes = [b"gitignore", b"gitmodules"]
 
+
+def ProcSingleFile(args, Root, FilePath, SharedHashList, SharedHashLock):
+    # Let's catagorise these
+    f = FilePath.split(".")
+    path = os.path.join(Root, FilePath)
+    relp = os.path.relpath(path, os.path.abspath(args.path)).encode()
+    ext = f[len(f) - 1].lower().encode()
+
+    try:
+        IsElementKnown, ComputedShortHash, ComputedLongHash, ComputedPerceptualHash = SharedHashList.IsElementKnownWithHash(pathAsBytes, relp, ext, allowLongHashes=(not (args.fast and args.short_hash)), silent=args.silent, useRawHashes=args.raw, mutex=SharedHashLock)
+        if not IsElementKnown:
+            print("[ADDITION] File: {}".format(relp))
+            SharedHashList.AddElement(pathAsBytes, relp, ext, silent=args.silent, useLongHash=(not args.short_hash), useRawHashes=args.raw, PrecomputedShortHash=ComputedShortHash, PrecomputedLongHash=ComputedLongHash, PrecomputedPerceptualHash=ComputedPerceptualHash, mutex=SharedHashLock)
+        else:
+            if args.allow_quarantine:
+                MoveFileToQuarantine(Root, (FilePath, ext), args)  
+    except KeyboardInterrupt as kbi:
+        raise kbi
+    except Exception as e:
+        print("Error on file {}: {}".format(FilePath, e), file=sys.stderr)
+
+
+def ThreadMain(TaskQueue, ThreadLock):
+    while(True):
+        Task = TaskQueue.get()
+        if Task is None:
+            return
+        
+        args, Root, FilePath, SharedHashList = Task
+        ProcSingleFile(args, Root, FilePath, SharedHashList, ThreadLock)
+
 if __name__ == "__main__":
+    from threading import Thread, Lock
+    import queue
     
     parser = argparse.ArgumentParser(description="Generates File Identities with an option to quarantine duplicates")
     parser.add_argument("--allow-quarantine", action="store_true", help='Enable moving files - Dangerous')
@@ -141,34 +174,44 @@ if __name__ == "__main__":
     hashlist = HashList.CHashList(encodedHashtable, WantedExtensions)
     hashlist.Prune(pathAsBytes, dry_run=False, silent=args.silent)
 
-    for r, d, p in os.walk(args.path):
-        d[:] = [x for x in d if x not in excludeDirs]
-        p[:] = [x for x in p if GetExtension(x) not in excludeFileTypes]
+    WaitingTasks = []
 
-        if ".skipfolder" in p:
-            d[:] = []#[x for x in d]
-            print("Skipping Below {}".format(r))
-            continue
+    GlobalHashLock = Lock()
+    TaskQueue = queue.Queue()
 
-        for fi in p:
-            # Let's catagorise these
-            f = fi.split(".")
-            path = os.path.join(r, fi)
-            relp = os.path.relpath(path, os.path.abspath(args.path)).encode()
-            ext = f[len(f) - 1].lower().encode()
+    # Spawn Pool
+    ThreadPool = []
+    ThreadLimit = os.cpu_count()
+    #ThreadLimit = 16
+    print("[INFO] Spawning {} threads".format(ThreadLimit))
+    for i in range(ThreadLimit):
+        ThatThread = Thread(target=ThreadMain, args=[TaskQueue, GlobalHashLock])
+        ThreadPool.append(ThatThread)
+        ThatThread.start()
 
-            try:
-                IsElementKnown, ComputedShortHash, ComputedLongHash, ComputedPerceptualHash = hashlist.IsElementKnownWithHash(pathAsBytes, relp, ext, allowLongHashes=(not (args.fast and args.short_hash)), silent=args.silent, useRawHashes=args.raw)
-                if not IsElementKnown:
-                    print("[ADDITION] File: {}".format(relp))
-                    hashlist.AddElement(pathAsBytes, relp, ext, silent=args.silent, useLongHash=(not args.short_hash), useRawHashes=args.raw, PrecomputedShortHash=ComputedShortHash, PrecomputedLongHash=ComputedLongHash, PrecomputedPerceptualHash=ComputedPerceptualHash)
-                else:
-                    if args.allow_quarantine:
-                        MoveFileToQuarantine(r, (fi, ext), args)  
-            except KeyboardInterrupt as kbi:
-                raise kbi
-            except Exception as e:
-                print("Error on file {}: {}".format(fi, e), file=sys.stderr)
+    try:
+        for r, d, p in os.walk(args.path):
+            d[:] = [x for x in d if x not in excludeDirs]
+            p[:] = [x for x in p if GetExtension(x) not in excludeFileTypes]
+
+            if ".skipfolder" in p:
+                d[:] = []#[x for x in d]
+                print("Skipping Below {}".format(r))
                 continue
+
+            for fi in p:
+                TaskQueue.put((args, r, fi, hashlist))
+    except:
+        # Bin the queue
+        TaskQueue.empty()
+        # for W in WaitingTasks:
+        #     print("Waiting")#python GenerateHashList.py -f -r -zb --sha512 -t Test/Test3.ht /d/Unreal/Projects/RedInkling/
+        #     #W.get()
+    finally:
+        for Th in ThreadPool:
+            TaskQueue.put(None)
+
+        for Th in ThreadPool:
+            Th.join()
 
     hashlist.Write()

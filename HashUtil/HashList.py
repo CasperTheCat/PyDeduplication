@@ -340,11 +340,12 @@ class CHashList():
 
             firstBlock = fileObj.read(localBlockSize)
 
-            # Seek end
-            fileObj.seek(-localBlockSize, 2)
-            lastBlock = fileObj.read(localBlockSize)
+            # Final Block. Align to block, then read extra if required
+            FinalBlockOffset, FinalRead = self._GetFinalBlockOffset(fileSize, localBlockSize)
+            fileObj.seek(FinalBlockOffset, 0)
+            LastBlock = fileObj.read(FinalRead)
 
-            sHash = self._GetHash(firstBlock + lastBlock)
+            sHash = self._GetHash(firstBlock + LastBlock)
 
             # Reset seek
             fileObj.seek(0) 
@@ -603,7 +604,13 @@ class CHashList():
                 
         return False
 
+    def _LockMutex(self, mutex):
+        if mutex is not None:
+            mutex.acquire()
 
+    def _UnlockMutex(self, mutex):
+        if mutex is not None:
+            mutex.release()
 
     def _DoesLongHashCollide(self, iFileSize, name, hLongHash, silent):
         return self._DoesHashCollide(iFileSize, name, None, hLongHash, silent)
@@ -614,7 +621,7 @@ class CHashList():
     def _DoesPerceptualHashCollide(self, iFileSize, name, hPerceptualHash, silent):
         return self._DoesHashCollide(iFileSize, name, None, None, silent, hPerceptualHash)
     
-    def IsElementKnownWithHash(self, root, relPath, extension, allowLongHashes=False,  silent=False, useRawHashes=False):
+    def IsElementKnownWithHash(self, root, relPath, extension, allowLongHashes=False,  silent=False, useRawHashes=False, mutex=None):
         """
         Check Element against internal file list
 
@@ -643,12 +650,24 @@ class CHashList():
 
             # Also silence this call when long hashes are allowed. We don't care if miss the call in that case
             # If they are really different, the deep check will pick it up
-            if self._DoesShortHashCollide(l_FileSize, (relPath, extension), l_ShortHash, silent or allowLongHashes):
+
+            # CRITICAL REGION
+            self._LockMutex(mutex)
+            HasShortHashCollision = self._DoesShortHashCollide(l_FileSize, (relPath, extension), l_ShortHash, silent or allowLongHashes)
+            self._UnlockMutex(mutex)
+            # END CRITICAL REGION
+
+            if HasShortHashCollision:
                 # Short collided, we want to do a full check if enabled
                 if allowLongHashes:
                     l_LongHash = self._LongHashSelector(ele, l_FileSize, relPath, extension, useRawHashes)
+                    # CRITICAL REGION
+                    self._LockMutex(mutex)
+                    HasLongHashCollision = self._DoesLongHashCollide(l_FileSize, (relPath, extension), l_LongHash, silent)
+                    self._UnlockMutex(mutex)
+                    # END CRITICAL REGION
 
-                    if self._DoesLongHashCollide(l_FileSize, (relPath, extension), l_LongHash, silent):
+                    if HasLongHashCollision:
                         # We definitely know this one, so let's return that
                         return True, l_ShortHash, l_LongHash, l_phash
                 else:
@@ -661,12 +680,17 @@ class CHashList():
                 l_phash = self._PerceptualHash(ele, l_FileSize, relPath, extension, useRawHashes, fullPath)
 
                 if l_phash is not None:
-                    if self._DoesPerceptualHashCollide(l_FileSize, (relPath, extension), l_phash, silent):
+                    # CRITICAL REGION
+                    self._LockMutex(mutex)
+                    HasPercHashCollision = self._DoesPerceptualHashCollide(l_FileSize, (relPath, extension), l_phash, silent)
+                    self._UnlockMutex(mutex)
+                    # END CRITICAL REGION
+                    if HasPercHashCollision:
                         return True, l_ShortHash, l_LongHash, l_phash
 
         return False, l_ShortHash, l_LongHash, l_phash
 
-    def IsElementKnown(self, root, relPath, extension, allowLongHashes=False,  silent=False, useRawHashes=False):
+    def IsElementKnown(self, root, relPath, extension, allowLongHashes=False,  silent=False, useRawHashes=False, mutex=None):
         """
         Check Element against internal file list
 
@@ -674,11 +698,11 @@ class CHashList():
             IOError
         """
 
-        IsKnown, _, _, _ = self.IsElementKnownWithHash(root, relPath, extension, allowLongHashes,  silent, useRawHashes)
+        IsKnown, _, _, _ = self.IsElementKnownWithHash(root, relPath, extension, allowLongHashes,  silent, useRawHashes, mutex)
 
         return IsKnown
 
-    def AddElement(self, root, relPath, extension, silent=True, useLongHash=True, useRawHashes=False, disableCheckpoint=False, PrecomputedShortHash=None, PrecomputedLongHash=None, PrecomputedPerceptualHash=None):
+    def AddElement(self, root, relPath, extension, silent=True, useLongHash=True, useRawHashes=False, disableCheckpoint=False, PrecomputedShortHash=None, PrecomputedLongHash=None, PrecomputedPerceptualHash=None, mutex=None):
         """
             Root = Base Directory
             RelPath = Relative offset from Base
@@ -708,16 +732,37 @@ class CHashList():
             if EXT_PerceptualHash in self.capabilities and l_PercHash is None:
                 l_PercHash = self._PerceptualHash(ele, l_FileSize, relPath, extension, useRawHashes, fullPath)
 
+            # CRITICAL REGION
+            self._LockMutex(mutex)
             # FORMAT: Size, SH, LH, (Rel+Type), PH
             self.hashList.append((l_FileSize, l_ShortHash, l_LongHash, (saneRelPath, extension), l_PercHash))
             self._AddToGINs(len(self.hashList) - 1)
 
-        self.unserialisedBytes += l_FileSize
+            # Checkpoint
+            self.unserialisedBytes += l_FileSize
 
-        if self.unserialisedBytes > 256 * 1024 * 1024 and not disableCheckpoint:
-            print("[CHECKPOINT] Saving Checkpoint")
-            self.Write(self.storeName + b".tmp", True)
-            self.unserialisedBytes = 0
+            if self.unserialisedBytes > 1024 * 1024 * 1024 and not disableCheckpoint:
+                print("[CHECKPOINT] Saving Checkpoint")
+                self.Write(self.storeName + b".tmp", True)
+                self.unserialisedBytes = 0
+
+            self._UnlockMutex(mutex)
+            # END CRITICAL REGION
+
+        # # Do not bother with this during 
+        # # CRITICAL REGION
+        # self._LockMutex(mutex)
+
+        # # Checkpoint
+        # self.unserialisedBytes += l_FileSize
+
+        # if self.unserialisedBytes > 1024 * 1024 * 1024 and not disableCheckpoint:
+        #     print("[CHECKPOINT] Saving Checkpoint")
+        #     self.Write(self.storeName + b".tmp", True)
+        #     self.unserialisedBytes = 0
+
+        # self._UnlockMutex(mutex)
+        # # END CRITICAL REGION
 
     def Write(self, path=None, overwrite=False):
         if path:
