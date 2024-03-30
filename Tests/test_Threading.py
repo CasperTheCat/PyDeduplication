@@ -78,8 +78,8 @@ def test_ThreadedTableEqualsUnthreadedTable():
 
     # Add some files
     #assert(not os.path.abspath("./"))
-    PopulateTableWithGivenThreadCount(SingleThreadHashlist, 1, "./TestHT")
-    PopulateTableWithGivenThreadCount(SixteenThreadHashlist, 16, "./TestHT")
+    PopulateTableWithGivenThreadCount(SingleThreadHashlist, 1, "./")
+    PopulateTableWithGivenThreadCount(SixteenThreadHashlist, 16, "./")
 
     HasMissingItem = False
     # Compare
