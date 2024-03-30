@@ -87,36 +87,74 @@ def GetHashExtensions(arguments: argparse.Namespace):
 excludeDirs = [".git"]
 excludeFileTypes = [b"gitignore", b"gitmodules"]
 
-
-def ProcSingleFile(args, Root, FilePath, SharedHashList, SharedHashLock):
+def ProcSingleFile(args, Root, FilePath, SharedHashList, SharedHashLock, LogLines):
     # Let's catagorise these
     f = FilePath.split(".")
     path = os.path.join(Root, FilePath)
     relp = os.path.relpath(path, os.path.abspath(args.path)).encode()
     ext = f[len(f) - 1].lower().encode()
+    pathAsBytes = args.path.encode()
 
     try:
-        IsElementKnown, ComputedShortHash, ComputedLongHash, ComputedPerceptualHash = SharedHashList.IsElementKnownWithHash(pathAsBytes, relp, ext, allowLongHashes=(not (args.fast and args.short_hash)), silent=args.silent, useRawHashes=args.raw, mutex=SharedHashLock)
+        IsElementKnown, ComputedShortHash, ComputedLongHash, ComputedPerceptualHash = SharedHashList.IsElementKnownWithHash(pathAsBytes, relp, ext, allowLongHashes=(not (args.fast and args.short_hash)), minimumLogSeverity=Utils.ELogSeverity.Suppress if args.silent else Utils.ELogSeverity.Info, useRawHashes=args.raw, mutex=SharedHashLock, logList=LogLines)
         if not IsElementKnown:
-            print("[ADDITION] File: {}".format(relp))
-            SharedHashList.AddElement(pathAsBytes, relp, ext, silent=args.silent, useLongHash=(not args.short_hash), useRawHashes=args.raw, PrecomputedShortHash=ComputedShortHash, PrecomputedLongHash=ComputedLongHash, PrecomputedPerceptualHash=ComputedPerceptualHash, mutex=SharedHashLock)
+            if not args.silent:
+                LogLines.append(
+                    Utils.FormatLog(Utils.ELogSeverity.Info, "[ADDITION] File: {}".format(relp))
+                )
+            SharedHashList.AddElement(pathAsBytes, relp, ext, useLongHash=(not args.short_hash), useRawHashes=args.raw, disableCheckpoint=True, PrecomputedShortHash=ComputedShortHash, PrecomputedLongHash=ComputedLongHash, PrecomputedPerceptualHash=ComputedPerceptualHash, mutex=SharedHashLock)
         else:
             if args.allow_quarantine:
                 MoveFileToQuarantine(Root, (FilePath, ext), args)  
     except KeyboardInterrupt as kbi:
         raise kbi
     except Exception as e:
-        print("Error on file {}: {}".format(FilePath, e), file=sys.stderr)
+        LogLines.append(
+            Utils.FormatLog(Utils.ELogSeverity.Error, "Error on file {}: {}".format(FilePath, e))
+        )
 
 
-def ThreadMain(TaskQueue, ThreadLock):
+def ProcessThreadMain(TaskQueue, GlobalThreadLock, LogQueue):
+    LocalLogs = []
+
     while(True):
         Task = TaskQueue.get()
         if Task is None:
+            # Flush logs
+            #LogThreadLock.acquire()
+            LogQueue.put(LocalLogs.copy()) # Maybe not needed, but force the copy. I don't trust Python :P
+            #LogThreadLock.release()
+
+            TaskQueue.task_done()
             return
         
         args, Root, FilePath, SharedHashList = Task
-        ProcSingleFile(args, Root, FilePath, SharedHashList, ThreadLock)
+        ProcSingleFile(args, Root, FilePath, SharedHashList, GlobalThreadLock, LocalLogs)
+        TaskQueue.task_done()
+
+        if len(LocalLogs) > 1024:
+            # Flush
+            LogQueue.put(LocalLogs.copy())
+            LocalLogs = []
+
+def LogThreadMain(LogQueue):
+    while(True):
+        LogEntry = LogQueue.get()
+        if LogEntry is None:
+            LogQueue.task_done()
+            return
+
+        for Severity, Line in LogEntry:
+            if Severity == Utils.ELogSeverity.Error or Severity == Utils.ELogSeverity.Fatal:
+                print(Line, file=sys.stderr)
+
+                # Raise
+                if Severity == Severity == Utils.ELogSeverity.Fatal:
+                    raise Exception(Line)
+            else:
+                print(Line)
+
+        LogQueue.task_done()
 
 if __name__ == "__main__":
     from threading import Thread, Lock
@@ -135,35 +173,27 @@ if __name__ == "__main__":
     parser.add_argument('-zb', '--zfs-block', action="store_true", help='Use 128KiB short hash block size to align to common ZFS parameters, up from 4Ki')
     parser.add_argument('-mb', '--medium-block', action="store_true", help='Use 1MiB short hash block size, up from 4Ki')
     parser.add_argument('-lb', '--large-block', action="store_true", help='Use 16MiB short hash block size, up from 4Ki or 1Mi')
+    parser.add_argument('-cpus', '--threads', nargs=1,  metavar="nThreads", type=int, help='Number of Threads. Improves performance when IO bound. Defaults to 1. (Set 0 to use all CPUs).')
     parser.add_argument("path", metavar="path", type=str)
 
     args = parser.parse_args()
 
     # Sanity Short and non-raw
     if args.short_hash and not args.raw:
-        print("[WARN]: Using short hashes without specifing the raw hash mode may lead to false positive collisions.")
+        Utils.PrintPrettyLog(Utils.ELogSeverity.Warn, "Using short hashes without specifing the raw hash mode may lead to false positive collisions.")
 
     if args.allow_quarantine and args.short_hash:
-        print("[WARN]: Using quarantine without the added safety of full-file hashes is not advised.")
+        Utils.PrintPrettyLog(Utils.ELogSeverity.Warn, "Using quarantine without the added safety of full-file hashes is not advised.")
         if not args.raw:
-            print("[ERRR]: Quarantining enabled without raw or full-file hashes. This configuration WILL result in quarantining files in error. Either specify raw hashes or renable full-file hashing!")
-            sys.exit(-1)
-
-    
-
+            Utils.PrintPrettyLog(Utils.ELogSeverity.Fatal, "Quarantining enabled without raw or full-file hashes. This configuration WILL result in quarantining files in error. Either specify raw hashes or renable full-file hashing!")
 
     if not os.path.exists(args.path):
-        raise IOError("Directory \"{}\" does not exist".format(
+        Utils.PrintPrettyLog(Utils.ELogSeverity.Fatal, "Directory \"{}\" does not exist".format(
             args.path
-    ))
-
-    #if args.hashtable and not os.path.exists(args.hashtable[0]):
-    #    raise IOError("Directory \"{}\" does not exist".format(
-    #        args.hashtable
-    #))
+        ))
 
     if not IsDriveSafe(args.path, "./") and args.allow_quarantine:
-        raise Exception("Path is a parent of the directory this script is in!")
+        Utils.PrintPrettyLog(Utils.ELogSeverity.Fatal, "Path is a parent of the directory this script is in!")
 
     pathAsBytes = args.path.encode()
 
@@ -172,22 +202,31 @@ if __name__ == "__main__":
     WantedExtensions = GetHashExtensions(args)
 
     hashlist = HashList.CHashList(encodedHashtable, WantedExtensions)
-    hashlist.Prune(pathAsBytes, dry_run=False, silent=args.silent)
+    hashlist.Prune(pathAsBytes, dry_run=False, minimumLogSeverity=Utils.ELogSeverity.Suppress if args.silent else Utils.ELogSeverity.Info)
+
+    # Threading
+    ThreadLimit = 1
+    if args.threads and len(args.threads) == 1:
+        ThreadLimit = args.threads if args.threads[0] > 0 else os.cpu_count()
 
     WaitingTasks = []
-
+    ThreadPool = []
+    LoggerThread = None
     GlobalHashLock = Lock()
     TaskQueue = queue.Queue()
+    LogQueue = queue.Queue()
+    StandardExit = True
 
     # Spawn Pool
-    ThreadPool = []
-    ThreadLimit = os.cpu_count()
-    #ThreadLimit = 16
-    print("[INFO] Spawning {} threads".format(ThreadLimit))
+    Utils.PrintPrettyLog(Utils.ELogSeverity.Info, "Spawning {} threads".format(ThreadLimit))
     for i in range(ThreadLimit):
-        ThatThread = Thread(target=ThreadMain, args=[TaskQueue, GlobalHashLock])
+        ThatThread = Thread(target=ProcessThreadMain, args=[TaskQueue, GlobalHashLock, LogQueue])
         ThreadPool.append(ThatThread)
         ThatThread.start()
+
+    # Spawn Logging Thread
+    LoggerThread = Thread(target=LogThreadMain, args=[LogQueue])
+    LoggerThread.start()
 
     try:
         for r, d, p in os.walk(args.path):
@@ -196,13 +235,14 @@ if __name__ == "__main__":
 
             if ".skipfolder" in p:
                 d[:] = []#[x for x in d]
-                print("Skipping Below {}".format(r))
+                Utils.PrintPrettyLog(Utils.ELogSeverity.Verbose, "Skipping Below {}".format(r))
                 continue
 
             for fi in p:
                 TaskQueue.put((args, r, fi, hashlist))
     except:
         # Bin the queue
+        StandardExit = False
         TaskQueue.empty()
         # for W in WaitingTasks:
         #     print("Waiting")#python GenerateHashList.py -f -r -zb --sha512 -t Test/Test3.ht /d/Unreal/Projects/RedInkling/
@@ -214,4 +254,8 @@ if __name__ == "__main__":
         for Th in ThreadPool:
             Th.join()
 
-    hashlist.Write()
+        LogQueue.put(None)
+        LoggerThread.join()
+
+        if StandardExit:
+            hashlist.Write()

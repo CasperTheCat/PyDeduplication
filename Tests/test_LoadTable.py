@@ -8,8 +8,13 @@ import platform
 from HashUtil import HashList
 from HashUtil import EncryptionHelpers
 from HashUtil import Utils
-  
-def test_pass():
+from HashUtil import Extensions
+
+def test_creation():
+    Anonymous = HashList.CHashList()
+    Named = HashList.CHashList(b"Named")
+    Caps = HashList.CHashList(additionalCapabilities=[Extensions.EXT_SHA512])
+    NamedCaps = HashList.CHashList(b"Named", additionalCapabilities=[Extensions.EXT_SHA512])
     return
 
 # def test_LoadExisting():

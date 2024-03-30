@@ -100,13 +100,15 @@ if __name__ == "__main__":
 
     hashlist = HashList.CHashList(encodedHashtable)
 
+    LoggingLevel = minimumLogSeverity=Utils.ELogSeverity.Suppress if args.silent else Utils.ELogSeverity.Info
+
     for r, d, p in os.walk(args.path):
         d[:] = [x for x in d if x not in excludeDirs]
         p[:] = [x for x in p if GetExtension(x) not in excludeFileTypes]
 
         if ".skipfolder" in p:
             d[:] = []#[x for x in d]
-            print("[IGNORE] Skipping Below {}".format(r))
+            Utils.PrintPrettyLog(Utils.ELogSeverity.Verbose, "[IGNORE] Skipping Below {}".format(r))
             continue
 
         for fi in p:
@@ -118,10 +120,10 @@ if __name__ == "__main__":
 
 
             try:
-                if not hashlist.IsElementKnown(args.path.encode(), relp, ext, allowLongHashes=args.long_hash, silent=args.silent, useRawHashes=args.raw):
-                    hashlist.AddElement(args.path.encode(), relp, ext, silent=args.silent, useLongHash=args.long_hash, useRawHashes=args.raw, disableCheckpoint=True)
+                if not hashlist.IsElementKnown(args.path.encode(), relp, ext, allowLongHashes=args.long_hash, minimumLogSeverity=LoggingLevel, useRawHashes=args.raw):
+                    hashlist.AddElement(args.path.encode(), relp, ext, useLongHash=args.long_hash, useRawHashes=args.raw, disableCheckpoint=True)
                     if not args.silent:
-                        print("[CLEAR] File: {}".format(relp))#.decode()))
+                        Utils.PrintPrettyLog(Utils.ELogSeverity.Info, "[CLEAR] File: {}".format(relp))
                     pass
                 else:
                     #print("Wanting to move {}".format(relp))
@@ -130,6 +132,5 @@ if __name__ == "__main__":
             except KeyboardInterrupt as kbi:
                 raise kbi
             except Exception as e:
-                print("Error on file {}. Reason: {}".format(relp, e), file=sys.stderr)
-                #raise e
+                Utils.PrintPrettyLog(Utils.ELogSeverity.Error, "Error on file {}. Reason: {}".format(relp, e))
                 continue

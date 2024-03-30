@@ -4,7 +4,7 @@ import sys
 import os
 import numpy
 import argparse
-from HashUtil import HashList
+from HashUtil import HashList, Utils
 
 def CompareTables(masterTable, comparisonTable):
     print("Comparing {} to {}".format(comparisonTable, masterTable))
@@ -18,9 +18,9 @@ def CompareTables(masterTable, comparisonTable):
     for sz, shs, lhs, nm, ph in cTable.hashList:
         # Check if cElement's hash is known by mTable
         #if not mTable._DoesShortHashCollide(sz, nm, shs, True):
-        mTable._DoesPerceptualHashCollide(sz, nm, ph, False)
+        mTable._DoesPerceptualHashCollide(sz, nm, ph, Utils.ELogSeverity.Info)
         
-        if not mTable._DoesLongHashCollide(sz, nm, lhs, True):
+        if not mTable._DoesLongHashCollide(sz, nm, lhs, Utils.ELogSeverity.Suppress):
             print("[ONLY][{}] {}".format(comparisonTable, nm[0]))
         else:
             print("[BOTH][----] {}".format(nm[0]))

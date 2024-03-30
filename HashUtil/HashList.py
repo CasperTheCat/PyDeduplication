@@ -50,10 +50,11 @@ SUPPORTED_CAPABILITIES = []
 
 
 class CHashList():
-    def __init__(self, path = None, additionalCapabilities = None):
+    def __init__(self, path = None, additionalCapabilities = []):
         self.hashList = []
         self.hasWarnedOwnDirectory = False
         self.machineKey = EncryptionHelpers.LoadMachineKeys()
+        self.isDirty = False
         self.unserialisedBytes = 0
         self.capabilities = []
 
@@ -108,9 +109,9 @@ class CHashList():
                 
         else:
             self.storeName = ".!HashList"
-            # CREATE
-            with open(self.storeName, "wb+") as nf:
-                pass
+            # # CREATE
+            # with open(self.storeName, "wb+") as nf:
+            #     pass
 
         
             # Populate the capabilities
@@ -214,7 +215,7 @@ class CHashList():
                     break
         return False
 
-    def Prune(self, path, dry_run=False, silent=True):
+    def Prune(self, path, dry_run=False, minimumLogSeverity=Utils.ELogSeverity.Info, logList=None):
         # Prune the paths
         # While because immediately deleted paths will free an index
         dirty = False
@@ -226,9 +227,7 @@ class CHashList():
             fullPath = os.path.join(path, nm[0])
 
             if not os.path.exists(fullPath):
-                if not silent:
-                    print("File {} not found, pruning entry.".format(nm))
-
+                self._EnqueueLogToList(minimumLogSeverity, Utils.ELogSeverity.Info, "File {} not found, pruning entry.".format(nm), logList)
                 if not dry_run:
                     # We free an index here, so we don't increment idx as it now refers to the old idx+1 anyway
                     del self.hashList[idx]
@@ -239,6 +238,7 @@ class CHashList():
 
         if dirty:
             self._GenerateGINs()
+            self.isDirty = True
 
     def _GetHashProvider(self):
         if EXT_SHA512 in self.capabilities:
@@ -426,7 +426,7 @@ class CHashList():
         return self._GetLongHash(fileObj)
 
 
-    def _PerceptualHashScore(self, hPerceptualHash, ph, name, nm, delta):
+    def _PerceptualHashScore(self, hPerceptualHash, ph, name, nm, delta, minimumLogSeverity, logList):
 
         # Return early. It's literally the same file
         if self._SanitisePath(name[0]) == nm[0]:
@@ -439,7 +439,7 @@ class CHashList():
             score += 1
 
         if score > 0:
-            print("[COLLISION][PH][LARGER] File {} ({}x{}) collided with {} ({}x{}) at {:02%}".format(self._SanitisePath(name[0]), hPerceptualHash[1], hPerceptualHash[2], nm[0], ph[1], ph[2], 1 - numpy.max(delta) ) )                            
+            self._EnqueueLogToList(minimumLogSeverity, Utils.ELogSeverity.Info, "[COLLISION][PH][LARGER] File {} ({}x{}) collided with {} ({}x{}) at {:02%}".format(self._SanitisePath(name[0]), hPerceptualHash[1], hPerceptualHash[2], nm[0], ph[1], ph[2], 1 - numpy.max(delta) ), logList)
             # We're just bigger!
 
             #if not silent:
@@ -448,22 +448,21 @@ class CHashList():
             # Prune the ph entry
             #del self.hashList[idx]
             #self._GenerateGINs()
-            
         elif score == 0:
-            print("[COLLISION][PH][CROPPED] File {} ({}x{}) collided with {} ({}x{}) at {:02%}".format(self._SanitisePath(name[0]), hPerceptualHash[1], hPerceptualHash[2], nm[0], ph[1], ph[2], 1 - numpy.max(delta) ) )                            
+            self._EnqueueLogToList(minimumLogSeverity, Utils.ELogSeverity.Info, "[COLLISION][PH][CROPPED] File {} ({}x{}) collided with {} ({}x{}) at {:02%}".format(self._SanitisePath(name[0]), hPerceptualHash[1], hPerceptualHash[2], nm[0], ph[1], ph[2], 1 - numpy.max(delta) ), logList)
             # Cropped?
             # Warn and ret
             #if not silent:
             #    print("[WARN][PH] Found potentially cropped image ({}): allowing both.".format(name), file=sys.stderr)
 
         else:
-            print("[COLLISION][PH][SMALLER] File {} ({}x{}) collided with {} ({}x{}) at {:02%}".format(self._SanitisePath(name[0]), hPerceptualHash[1], hPerceptualHash[2], nm[0], ph[1], ph[2], 1 - numpy.max(delta) ) )    
+            self._EnqueueLogToList(minimumLogSeverity, Utils.ELogSeverity.Info, "[COLLISION][PH][SMALLER] File {} ({}x{}) collided with {} ({}x{}) at {:02%}".format(self._SanitisePath(name[0]), hPerceptualHash[1], hPerceptualHash[2], nm[0], ph[1], ph[2], 1 - numpy.max(delta) ), logList)
 
         return False
 
     # Refactor later!
     # We want to filter info about hard or soft collisions upwards (IE, we want information about *why* a collision occured)
-    def _DoesHashCollide(self, iFileSize, name, hShortHash, hLongHash, silent, hPerceptualHash=None):
+    def _DoesHashCollide(self, iFileSize, name, hShortHash, hLongHash, minimumLogSeverity, logList, hPerceptualHash=None):
         # Check here. Python can be slow with string cmps
         usingPerceptualHash = EXT_PerceptualHash in self.capabilities and not hPerceptualHash is None
 
@@ -494,13 +493,11 @@ class CHashList():
                 if sz == iFileSize and ((hShortHash != None and shs == hShortHash) or (hLongHash != None and lhs == hLongHash)):
                     ## Error Printing
                     if self._SanitisePath(name[0]) == nm[0]:
-                        if not silent:
-                            if not self.hasWarnedOwnDirectory:
-                                print("[WARN] File collision on identical path. This directory has likely already been scanned somewhere.", file=sys.stderr)
-                                self.hasWarnedOwnDirectory = True
+                        if not self.hasWarnedOwnDirectory:
+                            self._EnqueueLogToList(minimumLogSeverity, Utils.ELogSeverity.Warn, "File collision on identical path. This directory has likely already been scanned somewhere.", logList)
+                            self.hasWarnedOwnDirectory = True
                     else:
-                        if not silent:
-                            print("[COLLISION] File {} collided with {}".format(self._SanitisePath(name[0]), nm[0]))
+                        self._EnqueueLogToList(minimumLogSeverity, Utils.ELogSeverity.Info, "[COLLISION] File {} collided with {}".format(self._SanitisePath(name[0]), nm[0]), logList)
 
                     return True
 
@@ -510,7 +507,7 @@ class CHashList():
                         # If a hash collides, but we are larger: don't return the collision
                         # Instead. Warn and bin the old entry
 
-                        return self._PerceptualHashScore(hPerceptualHash, ph, name, nm, [0])   
+                        return self._PerceptualHashScore(hPerceptualHash, ph, name, nm, [0], minimumLogSeverity, logList)
 
                         score = -1
                         if hPerceptualHash[1] > ph[1]:
@@ -541,13 +538,13 @@ class CHashList():
                             return False
                     elif name[1].lower() in PERC_supportedVideoTypes:
                         delta = self.percVideoHasher.compute_distance(ph[0], hPerceptualHash[0])
-                        if delta < GLOBAL_LOG_THRESHOLD and not silent:
-                            return self._PerceptualHashScore(hPerceptualHash, ph, name, nm, delta)   
+                        if delta < GLOBAL_LOG_THRESHOLD:
+                            return self._PerceptualHashScore(hPerceptualHash, ph, name, nm, delta, minimumLogSeverity, logList)
                             #print("[COLLISION][PH] VMatched {} vs {} at {:02%}".format(name[0], nm[0], 1 - numpy.max(delta)))
                     elif name[1].lower() in PIL_supportedImageTypes:
                         delta = self.perceptualHasher.compute_distance(ph[0], hPerceptualHash[0])
-                        if delta < GLOBAL_LOG_THRESHOLD and not silent:
-                            return self._PerceptualHashScore(hPerceptualHash, ph, name, nm, delta)  
+                        if delta < GLOBAL_LOG_THRESHOLD:
+                            return self._PerceptualHashScore(hPerceptualHash, ph, name, nm, delta, minimumLogSeverity, logList)
                             #print("[COLLISION][PH] IMatched {} vs {} at {:02%}".format(name[0], nm[0], 1 - numpy.max(delta)))
 
         else:
@@ -598,9 +595,9 @@ class CHashList():
                         elif name[1].lower() in PERC_supportedVideoTypes:
                             delta = self.percVideoHasher.compute_distance(ph[0], hPerceptualHash[0])
 
-                        if delta < GLOBAL_LOG_THRESHOLD and not silent:
+                        if delta < GLOBAL_LOG_THRESHOLD:
                             #print("[COLLISION][PH] File {} ({}x{}) collided with {} ({}x{}) at {:02%}".format(self._SanitisePath(name[0]), hPerceptualHash[1], hPerceptualHash[2], nm[0], ph[1], ph[2], 1 - numpy.max(delta) ) )                            
-                            return self._PerceptualHashScore(hPerceptualHash, ph, name, nm, delta)                          
+                            return self._PerceptualHashScore(hPerceptualHash, ph, name, nm, delta, minimumLogSeverity, logList)
                 
         return False
 
@@ -612,16 +609,16 @@ class CHashList():
         if mutex is not None:
             mutex.release()
 
-    def _DoesLongHashCollide(self, iFileSize, name, hLongHash, silent):
-        return self._DoesHashCollide(iFileSize, name, None, hLongHash, silent)
+    def _DoesLongHashCollide(self, iFileSize, name, hLongHash, minimumLogSeverity, logList=None):
+        return self._DoesHashCollide(iFileSize, name, None, hLongHash, minimumLogSeverity, logList)
     
-    def _DoesShortHashCollide(self, iFileSize, name, hShortHash, silent):
-        return self._DoesHashCollide(iFileSize, name, hShortHash, None, silent)
+    def _DoesShortHashCollide(self, iFileSize, name, hShortHash, minimumLogSeverity, logList=None):
+        return self._DoesHashCollide(iFileSize, name, hShortHash, None, minimumLogSeverity, logList)
 
-    def _DoesPerceptualHashCollide(self, iFileSize, name, hPerceptualHash, silent):
-        return self._DoesHashCollide(iFileSize, name, None, None, silent, hPerceptualHash)
-    
-    def IsElementKnownWithHash(self, root, relPath, extension, allowLongHashes=False,  silent=False, useRawHashes=False, mutex=None):
+    def _DoesPerceptualHashCollide(self, iFileSize, name, hPerceptualHash, minimumLogSeverity, logList=None):
+        return self._DoesHashCollide(iFileSize, name, None, None, minimumLogSeverity, logList, hPerceptualHash)
+
+    def IsElementKnownWithHash(self, root, relPath, extension, allowLongHashes=False, useRawHashes=False, minimumLogSeverity=Utils.ELogSeverity.Info, mutex=None, logList=None):
         """
         Check Element against internal file list
 
@@ -635,7 +632,7 @@ class CHashList():
 
         # Is the file empty? It'll collide with every other empty file
         if l_FileSize == 0:
-            print("[EMPTY] File {} is empty".format(self._SanitisePath(relPath)))
+            self._EnqueueLogToList(minimumLogSeverity, Utils.ELogSeverity.Info, "[EMPTY] File {} is empty".format(self._SanitisePath(relPath)), logList)
             return True, None, None, None
 
         # Define as None here to pass back if available
@@ -653,7 +650,7 @@ class CHashList():
 
             # CRITICAL REGION
             self._LockMutex(mutex)
-            HasShortHashCollision = self._DoesShortHashCollide(l_FileSize, (relPath, extension), l_ShortHash, silent or allowLongHashes)
+            HasShortHashCollision = self._DoesShortHashCollide(l_FileSize, (relPath, extension), l_ShortHash, Utils.ELogSeverity.Suppress if allowLongHashes else minimumLogSeverity, logList)
             self._UnlockMutex(mutex)
             # END CRITICAL REGION
 
@@ -663,7 +660,7 @@ class CHashList():
                     l_LongHash = self._LongHashSelector(ele, l_FileSize, relPath, extension, useRawHashes)
                     # CRITICAL REGION
                     self._LockMutex(mutex)
-                    HasLongHashCollision = self._DoesLongHashCollide(l_FileSize, (relPath, extension), l_LongHash, silent)
+                    HasLongHashCollision = self._DoesLongHashCollide(l_FileSize, (relPath, extension), l_LongHash, minimumLogSeverity, logList)
                     self._UnlockMutex(mutex)
                     # END CRITICAL REGION
 
@@ -682,7 +679,7 @@ class CHashList():
                 if l_phash is not None:
                     # CRITICAL REGION
                     self._LockMutex(mutex)
-                    HasPercHashCollision = self._DoesPerceptualHashCollide(l_FileSize, (relPath, extension), l_phash, silent)
+                    HasPercHashCollision = self._DoesPerceptualHashCollide(l_FileSize, (relPath, extension), l_phash, minimumLogSeverity, logList)
                     self._UnlockMutex(mutex)
                     # END CRITICAL REGION
                     if HasPercHashCollision:
@@ -690,7 +687,7 @@ class CHashList():
 
         return False, l_ShortHash, l_LongHash, l_phash
 
-    def IsElementKnown(self, root, relPath, extension, allowLongHashes=False,  silent=False, useRawHashes=False, mutex=None):
+    def IsElementKnown(self, root, relPath, extension, allowLongHashes=False, minimumLogSeverity=Utils.ELogSeverity.Info, useRawHashes=False, mutex=None, logList=None):
         """
         Check Element against internal file list
 
@@ -698,17 +695,15 @@ class CHashList():
             IOError
         """
 
-        IsKnown, _, _, _ = self.IsElementKnownWithHash(root, relPath, extension, allowLongHashes,  silent, useRawHashes, mutex)
+        IsKnown, _, _, _ = self.IsElementKnownWithHash(root, relPath, extension, allowLongHashes, Utils.ELogSeverity.Info, useRawHashes, mutex, logList)
 
         return IsKnown
 
-    def AddElement(self, root, relPath, extension, silent=True, useLongHash=True, useRawHashes=False, disableCheckpoint=False, PrecomputedShortHash=None, PrecomputedLongHash=None, PrecomputedPerceptualHash=None, mutex=None):
+    def AddElement(self, root, relPath, extension, useLongHash=True, useRawHashes=False, disableCheckpoint=False, PrecomputedShortHash=None, PrecomputedLongHash=None, PrecomputedPerceptualHash=None, mutex=None):
         """
             Root = Base Directory
             RelPath = Relative offset from Base
             Extension = File extension
-
-            Silent = Mutes output
             useLongHash = Should the longer hash be generated
         """
         saneRelPath = self._SanitisePath(relPath)
@@ -737,6 +732,7 @@ class CHashList():
             # FORMAT: Size, SH, LH, (Rel+Type), PH
             self.hashList.append((l_FileSize, l_ShortHash, l_LongHash, (saneRelPath, extension), l_PercHash))
             self._AddToGINs(len(self.hashList) - 1)
+            self.isDirty = True
 
             # Checkpoint
             self.unserialisedBytes += l_FileSize
@@ -765,6 +761,10 @@ class CHashList():
         # # END CRITICAL REGION
 
     def Write(self, path=None, overwrite=False):
+        if not self.isDirty:
+            # No point doing work when nothing was done
+            return
+
         if path:
             # if not os.path.exists(path):
             #     os.makedirs(path)
@@ -789,3 +789,15 @@ class CHashList():
                 with open(self.storeName, "wb+") as f:
                     pickled = pickle.dumps((HASHLIST_VERSION_NUMBER, self.capabilities, self.hashList))
                     f.write(EncryptionHelpers.Encrypt(pickled, self.machineKey))
+
+        self.isDirty = False
+
+    def _EnqueueLogToList(self, MinLogSeverity, LogSeverity, LogLine, LogList):
+        if LogSeverity.value < MinLogSeverity.value:
+            return
+
+        # We need to enqueue
+        if LogList is None:
+            print(Utils.FormatLog(LogSeverity, LogLine)[1])
+        else:
+            LogList.append(Utils.FormatLog(LogSeverity, LogLine))
