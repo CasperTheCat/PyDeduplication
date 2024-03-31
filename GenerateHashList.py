@@ -8,6 +8,13 @@ import platform
 from HashUtil import HashList
 from HashUtil import Utils
 from HashUtil import Extensions
+from enum import Enum
+import queue
+
+class EProcessPhase(Enum):
+    PrimaryShortHashPass = 1
+    SecondaryFullPass = 2
+    ThreadJoin = 3
 
 def MoveFileToQuarantine(r, fl, args):
     Utils.Quarantine(r, fl, args, "../.!Quarantine")
@@ -96,7 +103,7 @@ def ProcSingleFile(args, Root, FilePath, SharedHashList, SharedHashLock, LogLine
     pathAsBytes = args.path.encode()
 
     try:
-        IsElementKnown, ComputedShortHash, ComputedLongHash, ComputedPerceptualHash = SharedHashList.IsElementKnownWithHash(pathAsBytes, relp, ext, allowLongHashes=(not (args.fast and args.short_hash)), minimumLogSeverity=Utils.ELogSeverity.Suppress if args.silent else Utils.ELogSeverity.Info, useRawHashes=args.raw, mutex=SharedHashLock, logList=LogLines)
+        IsElementKnown, ComputedShortHash, ComputedLongHash, ComputedPerceptualHash = SharedHashList.IsElementKnownWithHash(pathAsBytes, relp, ext, allowLongHashes=(not (args.fast or args.short_hash)), minimumLogSeverity=Utils.ELogSeverity.Suppress if args.silent else Utils.ELogSeverity.Info, useRawHashes=args.raw, mutex=SharedHashLock, logList=LogLines)
         if not IsElementKnown:
             if not args.silent:
                 LogLines.append(
@@ -114,30 +121,89 @@ def ProcSingleFile(args, Root, FilePath, SharedHashList, SharedHashLock, LogLine
         )
 
 
-def ProcessThreadMain(TaskQueue, GlobalThreadLock, LogQueue):
+def PrimaryPhase(args, pathAsBytes, relp, ext, fileSize, SharedHashList, LogLines):
+    # Short Hash here
+    ShortHash = SharedHashList.PrecomputeShortHash(pathAsBytes, relp, ext, fileSize, args.raw)
+    if ShortHash is None:
+        if not args.silent:
+            LogLines.append(
+                Utils.FormatLog(Utils.ELogSeverity.Info, "[EMPTY] File {} is empty".format(SharedHashList._SanitisePath(relp)))
+            )
+    return ShortHash
+
+def SecondaryPhase(args, pathAsBytes, relp, ext, fileSize, SharedHashList, LogLines):
+    return SharedHashList.PrecomputeLongHash(pathAsBytes, relp, ext, fileSize, args.raw)
+
+def PerceptualPhase(args, pathAsBytes, relp, ext, fileSize, SharedHashList, LogLines):
+    #TODO
+    return SharedHashList.PrecomputeLongHash(pathAsBytes, relp, ext, fileSize, args.raw)
+
+def ProcessThreadMain(ThreadID, TaskQueue, OutQueue, GlobalHashList, LogQueue):
     LocalLogs = []
+    LocalResults = []
 
     while(True):
         Task = TaskQueue.get()
         if Task is None:
+            TaskQueue.task_done()
+            return
+
+        TaskType, TaskArgs = Task
+        if TaskType == EProcessPhase.PrimaryShortHashPass:
+            args, pathAsBytes, relp, ext, fileSize = TaskArgs
+            ShortHash = PrimaryPhase(args, pathAsBytes, relp, ext, fileSize, GlobalHashList, LocalLogs)
+
+            if ShortHash is not None:
+                # Non-locked read-only hash check
+                UseLongComparison = not (args.fast or args.short_hash)
+                if UseLongComparison:
+                    # Bypass checking and directly add since it's irrelevant to the process here
+                    LocalResults.append((EProcessPhase.PrimaryShortHashPass, (args, pathAsBytes, relp, ext, fileSize, ShortHash)))
+                else:
+                    # Check
+                    DidCollide = GlobalHashList._DoesShortHashCollide(fileSize, (relp, ext), ShortHash, Utils.ELogSeverity.Info, LocalLogs)
+                    if not DidCollide:
+                        LocalResults.append((EProcessPhase.PrimaryShortHashPass, (args, pathAsBytes, relp, ext, fileSize, ShortHash)))
+        elif TaskType == EProcessPhase.SecondaryFullPass:
+            args, pathAsBytes, relp, ext, fileSize, ShortHash = TaskArgs
+            LongHash = SecondaryPhase(args, pathAsBytes, relp, ext, fileSize, GlobalHashList, LocalLogs)
+
+            if LongHash is not None:
+                UseLongComparison = not (args.fast or args.short_hash)
+                if UseLongComparison:
+                    DidCollide = GlobalHashList._DoesLongHashCollide(fileSize, (relp, ext), LongHash, Utils.ELogSeverity.Info, LocalLogs)
+
+                    if not DidCollide:
+                        LocalResults.append((EProcessPhase.SecondaryFullPass, (args, pathAsBytes, relp, ext, fileSize, ShortHash, LongHash)))
+
+                else:
+                    LocalResults.append((EProcessPhase.SecondaryFullPass, (args, pathAsBytes, relp, ext, fileSize, ShortHash, LongHash)))
+        elif TaskType == EProcessPhase.ThreadJoin:
             # Flush logs
             #LogThreadLock.acquire()
             LogQueue.put(LocalLogs.copy()) # Maybe not needed, but force the copy. I don't trust Python :P
             #LogThreadLock.release()
+            OutQueue.put(LocalResults.copy())
 
+            LogQueue.put([Utils.FormatLog(Utils.ELogSeverity.Verbose, "[THREADING] Thread {} Shutdown. Reason: {}".format(ThreadID, TaskArgs))])
             TaskQueue.task_done()
             return
-        
-        args, Root, FilePath, SharedHashList = Task
-        ProcSingleFile(args, Root, FilePath, SharedHashList, GlobalThreadLock, LocalLogs)
+        else:
+            TaskQueue.task_done()
+            return
+
         TaskQueue.task_done()
+
+        if len(LocalResults) > 16384:
+            OutQueue.put(LocalResults.copy())
+            LocalResults = []
 
         if len(LocalLogs) > 1024:
             # Flush
             LogQueue.put(LocalLogs.copy())
             LocalLogs = []
 
-def LogThreadMain(LogQueue):
+def LogThreadMain(LogQueue, LogLevel):
     while(True):
         LogEntry = LogQueue.get()
         if LogEntry is None:
@@ -145,20 +211,70 @@ def LogThreadMain(LogQueue):
             return
 
         for Severity, Line in LogEntry:
-            if Severity == Utils.ELogSeverity.Error or Severity == Utils.ELogSeverity.Fatal:
-                print(Line, file=sys.stderr)
+            # Shall we print?
+            if Severity.value >= LogLevel.value:
+                if Severity == Utils.ELogSeverity.Error or Severity == Utils.ELogSeverity.Fatal:
+                    print(Line, file=sys.stderr)
+                else:
+                    print(Line)
 
-                # Raise
-                if Severity == Severity == Utils.ELogSeverity.Fatal:
-                    raise Exception(Line)
-            else:
-                print(Line)
+            if Severity == Utils.ELogSeverity.Fatal:
+                raise Exception(Line)
 
         LogQueue.task_done()
 
+def ConfigureThreadPipeline(nThreads, InQueue, OutQueue, TaskName, LogQueue, GlobalHashList):
+    # Spawn Pool
+    # Spawn Pool
+    JoinReason = "{} Fence".format(TaskName)
+    ThreadPool = []
+    LogQueue.put([Utils.FormatLog(Utils.ELogSeverity.Verbose, "[THREADING] Spawning {} {} Threads".format(nThreads, TaskName))])
+    for i in range(nThreads):
+        ThatThread = Thread(target=ProcessThreadMain, args=[i, InQueue, OutQueue, GlobalHashList, LogQueue])
+        ThreadPool.append(ThatThread)
+        ThatThread.start()
+
+    return (ThreadPool, JoinReason)
+
+def AwaitPipelineCompletion(ThreadPipeline, InQueue: queue):
+    ThreadPool, JoinReason = ThreadPipeline
+    for Th in ThreadPool:
+        InQueue.put((EProcessPhase.ThreadJoin, JoinReason))
+
+    for Th in ThreadPool:
+        Th.join()
+
+    # Return the queue to empty
+    while not InQueue.empty:
+        InQueue.get()
+        InQueue.task_done()
+
+
+def GetFileTasks(args):
+    for r, d, p in os.walk(args.path):
+        d[:] = [x for x in d if x not in excludeDirs]
+        p[:] = [x for x in p if GetExtension(x) not in excludeFileTypes]
+
+        if ".skipfolder" in p:
+            d[:] = []#[x for x in d]
+            Utils.PrintPrettyLog(Utils.ELogSeverity.Verbose, "Skipping Below {}".format(r))
+            continue
+
+        for fi in p:
+            # Let's catagorise these
+            f = fi.split(".")
+            path = os.path.join(r, fi)
+            relp = os.path.relpath(path, os.path.abspath(args.path)).encode()
+            ext = f[len(f) - 1].lower().encode()
+            pathAsBytes = args.path.encode()
+
+            fullPath = os.path.join(pathAsBytes, relp)
+            fileSize = os.path.getsize(fullPath)
+
+            yield (args, pathAsBytes, relp, ext, fileSize)
+
 if __name__ == "__main__":
-    from threading import Thread, Lock
-    import queue
+    from threading import Thread, Lock, Semaphore, Condition
     
     parser = argparse.ArgumentParser(description="Generates File Identities with an option to quarantine duplicates")
     parser.add_argument("--allow-quarantine", action="store_true", help='Enable moving files - Dangerous')
@@ -173,7 +289,9 @@ if __name__ == "__main__":
     parser.add_argument('-zb', '--zfs-block', action="store_true", help='Use 128KiB short hash block size to align to common ZFS parameters, up from 4Ki')
     parser.add_argument('-mb', '--medium-block', action="store_true", help='Use 1MiB short hash block size, up from 4Ki')
     parser.add_argument('-lb', '--large-block', action="store_true", help='Use 16MiB short hash block size, up from 4Ki or 1Mi')
-    parser.add_argument('-cpus', '--threads', nargs=1,  metavar="nThreads", type=int, help='Number of Threads. Improves performance when IO bound. Defaults to 1. (Set 0 to use all CPUs).')
+    parser.add_argument('-cpus', '--threads', nargs=1,  metavar="nThreads", type=int, help='Number of Threads. Improves performance when IO bound. Defaults to 1. (Set 0 to use all CPUs. Scan Threads will be set to 4x the value set here.).')
+    parser.add_argument('-scpus', '--scan-threads', nargs=1,  metavar="nThreads", type=int, help='Number of Threads. Improves performance when IO bound. Defaults to 1. (Set 0 to use all 4x total CPU count).')
+    parser.add_argument('-fcpus', '--full-threads', nargs=1,  metavar="nThreads", type=int, help='Number of Threads. Improves performance when IO bound. Defaults to 1. (Set 0 to use all CPUs).')
     parser.add_argument("path", metavar="path", type=str)
 
     args = parser.parse_args()
@@ -204,58 +322,101 @@ if __name__ == "__main__":
     hashlist = HashList.CHashList(encodedHashtable, WantedExtensions)
     hashlist.Prune(pathAsBytes, dry_run=False, minimumLogSeverity=Utils.ELogSeverity.Suppress if args.silent else Utils.ELogSeverity.Info)
 
-    # Threading
-    ThreadLimit = 1
-    if args.threads and len(args.threads) == 1:
-        ThreadLimit = args.threads if args.threads[0] > 0 else os.cpu_count()
+    UseLongComparison = not (args.fast or args.short_hash)
 
-    WaitingTasks = []
+    LogLevel = Utils.ELogSeverity.Info
+    # VERBOSE
+    if args.silent:
+        LogLevel = Utils.ELogSeverity.Suppress
+
+    # Threading
+    BaseThreadCount = 1
+    if args.threads and len(args.threads) == 1:
+        BaseThreadCount = args.threads[0] if args.threads[0] > 0 else os.cpu_count()
+
+    # Threading
+    ScanThreadLimit = BaseThreadCount * 4
+    if args.scan_threads and len(args.scan_threads) == 1:
+        ScanThreadLimit = args.scan_threads[0] if args.scan_threads[0] > 0 else os.cpu_count() * 4
+
+    # Threading
+    ProcThreadLimit = BaseThreadCount
+    if args.full_threads and len(args.full_threads) == 1:
+        ProcThreadLimit = args.full_threads[0] if args.full_threads[0] > 0 else os.cpu_count()
+
+    CandidateEntries = []
     ThreadPool = []
     LoggerThread = None
     GlobalHashLock = Lock()
     TaskQueue = queue.Queue()
+    ResultQueue = queue.Queue()
+    LongQueue = queue.Queue()
     LogQueue = queue.Queue()
-    StandardExit = True
-
-    # Spawn Pool
-    Utils.PrintPrettyLog(Utils.ELogSeverity.Info, "Spawning {} threads".format(ThreadLimit))
-    for i in range(ThreadLimit):
-        ThatThread = Thread(target=ProcessThreadMain, args=[TaskQueue, GlobalHashLock, LogQueue])
-        ThreadPool.append(ThatThread)
-        ThatThread.start()
 
     # Spawn Logging Thread
-    LoggerThread = Thread(target=LogThreadMain, args=[LogQueue])
+    LoggerThread = Thread(target=LogThreadMain, args=[LogQueue, LogLevel])
     LoggerThread.start()
 
     try:
-        for r, d, p in os.walk(args.path):
-            d[:] = [x for x in d if x not in excludeDirs]
-            p[:] = [x for x in p if GetExtension(x) not in excludeFileTypes]
+        # Short Hash
+        ShortHashPipeline = ConfigureThreadPipeline(ScanThreadLimit, TaskQueue, ResultQueue, "ShortHashQueue", LogQueue, hashlist)
 
-            if ".skipfolder" in p:
-                d[:] = []#[x for x in d]
-                Utils.PrintPrettyLog(Utils.ELogSeverity.Verbose, "Skipping Below {}".format(r))
-                continue
+        for ShortHashTask in GetFileTasks(args):
+            TaskQueue.put((EProcessPhase.PrimaryShortHashPass, ShortHashTask))
 
-            for fi in p:
-                TaskQueue.put((args, r, fi, hashlist))
-    except:
-        # Bin the queue
-        StandardExit = False
-        TaskQueue.empty()
-        # for W in WaitingTasks:
-        #     print("Waiting")#python GenerateHashList.py -f -r -zb --sha512 -t Test/Test3.ht /d/Unreal/Projects/RedInkling/
-        #     #W.get()
+        AwaitPipelineCompletion(ShortHashPipeline, TaskQueue)
+
+
+        # Long Hash
+        LongHashPipeline = ConfigureThreadPipeline(ProcThreadLimit, TaskQueue, LongQueue, "LongHashQueue", LogQueue, hashlist)
+
+        KnownReductionHashes = {}
+        while not ResultQueue.empty():
+            T = ResultQueue.get()
+
+            for TaskPhase, TaskArgs in T:
+                args, pathAsBytes, relp, ext, fileSize, ShortHash = TaskArgs
+                saneRelPath = hashlist._SanitisePath(relp)
+
+                if UseLongComparison or not ShortHash in KnownReductionHashes:
+                    TaskQueue.put((EProcessPhase.SecondaryFullPass, (args, pathAsBytes, relp, ext, fileSize, ShortHash)))
+                    KnownReductionHashes[ShortHash] = saneRelPath
+                elif not UseLongComparison and ShortHash in KnownReductionHashes and not args.silent:
+                    LogQueue.put([Utils.FormatLog(Utils.ELogSeverity.Info, "[COLLISION] File {} collided with {}".format(saneRelPath, KnownReductionHashes[ShortHash]))])
+
+            ResultQueue.task_done()
+
+        AwaitPipelineCompletion(LongHashPipeline, TaskQueue)
+
+        while not LongQueue.empty():
+            T = LongQueue.get()
+
+            for TaskPhase, TaskArgs in T:
+                args, pathAsBytes, relp, ext, fileSize, ShortHash, LongHash = TaskArgs
+
+                # DEBUG ONLY
+                if hashlist.IsElementKnown(pathAsBytes, relp, ext, True, True):
+                    Utils.PrintPrettyLog(Utils.ELogSeverity.Fatal, "File \"{}\" does not get handled correctly".format(
+                        os.path.join(pathAsBytes, relp)
+                    ))
+
+                hashlist.AddElement(
+                    pathAsBytes,
+                    relp,
+                    ext,
+                    useLongHash=(not args.short_hash),
+                    useRawHashes=args.raw,
+                    disableCheckpoint=True,
+                    PrecomputedShortHash=ShortHash,
+                    PrecomputedLongHash=LongHash,
+                    PrecomputedPerceptualHash=None
+                )
+
+
+            LongQueue.task_done()
+
+        # Write the list out
+        hashlist.Write()
     finally:
-        for Th in ThreadPool:
-            TaskQueue.put(None)
-
-        for Th in ThreadPool:
-            Th.join()
-
         LogQueue.put(None)
         LoggerThread.join()
-
-        if StandardExit:
-            hashlist.Write()

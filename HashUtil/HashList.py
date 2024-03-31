@@ -618,6 +618,29 @@ class CHashList():
     def _DoesPerceptualHashCollide(self, iFileSize, name, hPerceptualHash, minimumLogSeverity, logList=None):
         return self._DoesHashCollide(iFileSize, name, None, None, minimumLogSeverity, logList, hPerceptualHash)
 
+    def PrecomputeShortHash(self, root, relPath, extension, fileSize, useRawHashes=False):
+        # Get file size
+        fullPath = os.path.join(root, relPath)
+
+        # Is the file empty? It'll collide with every other empty file
+        if fileSize == 0:
+            return None
+
+        with open(fullPath, "rb") as ele:
+            # Get 'Short' Hash
+            return self._ShortHashSelector(ele, fileSize, relPath, extension, useRawHashes)
+
+    def PrecomputeLongHash(self, root, relPath, extension, fileSize, useRawHashes=False):
+        # Get file size
+        fullPath = os.path.join(root, relPath)
+
+        # Is the file empty? It'll collide with every other empty file
+        if fileSize == 0:
+            return None
+
+        with open(fullPath, "rb") as ele:
+            return self._LongHashSelector(ele, fileSize, relPath, extension, useRawHashes)
+
     def IsElementKnownWithHash(self, root, relPath, extension, allowLongHashes=False, useRawHashes=False, minimumLogSeverity=Utils.ELogSeverity.Info, mutex=None, logList=None):
         """
         Check Element against internal file list
@@ -687,7 +710,7 @@ class CHashList():
 
         return False, l_ShortHash, l_LongHash, l_phash
 
-    def IsElementKnown(self, root, relPath, extension, allowLongHashes=False, minimumLogSeverity=Utils.ELogSeverity.Info, useRawHashes=False, mutex=None, logList=None):
+    def IsElementKnown(self, root, relPath, extension, allowLongHashes=False, useRawHashes=False, minimumLogSeverity=Utils.ELogSeverity.Info, mutex=None, logList=None):
         """
         Check Element against internal file list
 
@@ -695,9 +718,14 @@ class CHashList():
             IOError
         """
 
-        IsKnown, _, _, _ = self.IsElementKnownWithHash(root, relPath, extension, allowLongHashes, Utils.ELogSeverity.Info, useRawHashes, mutex, logList)
+        IsKnown, _, _, _ = self.IsElementKnownWithHash(root, relPath, extension, allowLongHashes, useRawHashes, minimumLogSeverity, mutex, logList)
 
         return IsKnown
+
+    def AddHashedElement(self, relativePath, extension, fileSize, shortHash, longHash, perceptualHash ):
+        self.hashList.append((fileSize, shortHash, longHash, (relativePath, extension), perceptualHash))
+        self._AddToGINs(len(self.hashList) - 1)
+        self.isDirty = True
 
     def AddElement(self, root, relPath, extension, useLongHash=True, useRawHashes=False, disableCheckpoint=False, PrecomputedShortHash=None, PrecomputedLongHash=None, PrecomputedPerceptualHash=None, mutex=None):
         """
