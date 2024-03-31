@@ -275,6 +275,7 @@ def GetFileTasks(args):
 
 if __name__ == "__main__":
     from threading import Thread, Lock, Semaphore, Condition
+    import time
     
     parser = argparse.ArgumentParser(description="Generates File Identities with an option to quarantine duplicates")
     parser.add_argument("--allow-quarantine", action="store_true", help='Enable moving files - Dangerous')
@@ -357,18 +358,31 @@ if __name__ == "__main__":
     LoggerThread = Thread(target=LogThreadMain, args=[LogQueue, LogLevel])
     LoggerThread.start()
 
+    # Stats
+    STATS_TotalShortData = 0
+    STATS_TotalLongData = 0
+    STATS_ShortTime = 0
+    STATS_LongTime = 0
+
     try:
         # Short Hash
         ShortHashPipeline = ConfigureThreadPipeline(ScanThreadLimit, TaskQueue, ResultQueue, "ShortHashQueue", LogQueue, hashlist)
 
+        ShortStart = time.time()
+
         for ShortHashTask in GetFileTasks(args):
+            STATS_TotalShortData += ShortHashTask[4]
             TaskQueue.put((EProcessPhase.PrimaryShortHashPass, ShortHashTask))
 
         AwaitPipelineCompletion(ShortHashPipeline, TaskQueue)
 
+        STATS_ShortTime = time.time() - ShortStart
+
 
         # Long Hash
         LongHashPipeline = ConfigureThreadPipeline(ProcThreadLimit, TaskQueue, LongQueue, "LongHashQueue", LogQueue, hashlist)
+
+        LongStart = time.time()
 
         KnownReductionHashes = {}
         while not ResultQueue.empty():
@@ -376,6 +390,8 @@ if __name__ == "__main__":
 
             for TaskPhase, TaskArgs in T:
                 args, pathAsBytes, relp, ext, fileSize, ShortHash = TaskArgs
+                STATS_TotalLongData += fileSize
+
                 saneRelPath = hashlist._SanitisePath(relp)
 
                 if UseLongComparison or not ShortHash in KnownReductionHashes:
@@ -388,28 +404,41 @@ if __name__ == "__main__":
 
         AwaitPipelineCompletion(LongHashPipeline, TaskQueue)
 
+        STATS_LongTime = time.time() - LongStart
+
         while not LongQueue.empty():
             T = LongQueue.get()
 
             for TaskPhase, TaskArgs in T:
                 args, pathAsBytes, relp, ext, fileSize, ShortHash, LongHash = TaskArgs
 
-                # DEBUG ONLY
-                if hashlist.IsElementKnown(pathAsBytes, relp, ext, True, True):
-                    Utils.PrintPrettyLog(Utils.ELogSeverity.Fatal, "File \"{}\" does not get handled correctly".format(
-                        os.path.join(pathAsBytes, relp)
-                    ))
+                # # DEBUG ONLY
+                # if hashlist.IsElementKnown(pathAsBytes, relp, ext, True, True):
+                #     Utils.PrintPrettyLog(Utils.ELogSeverity.Fatal, "File \"{}\" does not get handled correctly".format(
+                #         os.path.join(pathAsBytes, relp)
+                #     ))
 
-                hashlist.AddElement(
-                    pathAsBytes,
-                    relp,
+                # hashlist.AddElement(
+                #     pathAsBytes,
+                #     relp,
+                #     ext,
+                #     useLongHash=(not args.short_hash),
+                #     useRawHashes=args.raw,
+                #     disableCheckpoint=True,
+                #     PrecomputedShortHash=ShortHash,
+                #     PrecomputedLongHash=LongHash,
+                #     PrecomputedPerceptualHash=None
+                # )
+
+                saneRelPath = hashlist._SanitisePath(relp)
+
+                hashlist.AddHashedElement(
+                    saneRelPath,
                     ext,
-                    useLongHash=(not args.short_hash),
-                    useRawHashes=args.raw,
-                    disableCheckpoint=True,
-                    PrecomputedShortHash=ShortHash,
-                    PrecomputedLongHash=LongHash,
-                    PrecomputedPerceptualHash=None
+                    fileSize,
+                    ShortHash,
+                    LongHash,
+                    None
                 )
 
 
@@ -420,3 +449,10 @@ if __name__ == "__main__":
     finally:
         LogQueue.put(None)
         LoggerThread.join()
+
+        # print Stats
+        if not args.silent:
+            if STATS_ShortTime > 0:
+                print("[STATS][SHORT] Processed {} in {}: {:.2f} MiB/s".format(STATS_TotalShortData, STATS_ShortTime, (STATS_TotalShortData / (1024 * 1024)) / STATS_ShortTime))
+            if STATS_LongTime > 0:
+                print("[STATS][LONG] Processed {} in {}: {:.2f} MiB/s".format(STATS_TotalLongData, STATS_LongTime, (STATS_TotalLongData / (1024 * 1024)) / STATS_LongTime))
