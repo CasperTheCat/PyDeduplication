@@ -21,7 +21,7 @@ def CompareTables(masterTable, comparisonTable):
         mTable._DoesPerceptualHashCollide(sz, nm, ph, False)
 
         LongHashMatch = mTable._DoesLongHashCollide(sz, nm, lhs, True)
-        ShortHashMatch= mTable._DoesShortHashCollide(sz, nm, lhs, True)
+        ShortHashMatch= mTable._DoesShortHashCollide(sz, nm, shs, True)
         
         if not LongHashMatch:
             print("[ONLY][{}] {}".format(comparisonTable, nm[0]))
