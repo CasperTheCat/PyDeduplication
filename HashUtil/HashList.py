@@ -254,7 +254,7 @@ class CHashList():
 
     def _ChunksOf(self, fileObj):
         while True:
-            chunk = fileObj.read(1024 * 1024 * 64)
+            chunk = fileObj.read(1024 * 1024 * 16)
 
             if not chunk:
                 break
