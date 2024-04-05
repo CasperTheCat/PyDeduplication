@@ -19,11 +19,20 @@ def CompareTables(masterTable, comparisonTable):
         # Check if cElement's hash is known by mTable
         #if not mTable._DoesShortHashCollide(sz, nm, shs, True):
         mTable._DoesPerceptualHashCollide(sz, nm, ph, False)
+
+        LongHashMatch = mTable._DoesLongHashCollide(sz, nm, lhs, True)
+        ShortHashMatch= mTable._DoesShortHashCollide(sz, nm, lhs, True)
         
-        if not mTable._DoesLongHashCollide(sz, nm, lhs, True):
+        if not LongHashMatch:
             print("[ONLY][{}] {}".format(comparisonTable, nm[0]))
         else:
             print("[BOTH][----] {}".format(nm[0]))
+
+        if not (LongHashMatch and ShortHashMatch):
+            if not ShortHashMatch:
+                print("[BOTH][MISMATCH] ShortHash: {}".format(nm[0]))
+            else:
+                print("[BOTH][MISMATCH] LongHash: {}".format(nm[0]))
     
 
 if __name__ == "__main__":

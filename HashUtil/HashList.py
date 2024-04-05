@@ -287,17 +287,28 @@ class CHashList():
 
     def _GetCentredBlockOffset(self, fileSize, blockSize):
         """Get the centred block offset"""
-        MidPoint = fileSize // 2
-        MidBlockPoint = MidPoint - (blockSize // 2)
+        if EXT_AlignedHashing in self.capabilities:
+            print("Aligned")
+            MidPoint = fileSize // 2
+            MidBlockPoint = MidPoint - (blockSize // 2)
 
-        return self._AlignBlockOffset(MidBlockPoint)
+            return self._AlignBlockOffset(MidBlockPoint)
+        else:
+            # Replicate the old, incorrect offset (It's not actually centred...)
+            MidPoint = fileSize // 2
+            MidBlockPoint = MidPoint - (blockSize)
+
+            return MidBlockPoint
 
     def _GetFinalBlockOffset(self, fileSize, blockSize):
         """Get the final block offset and read amount"""
-        AlignedBlockStart = self._AlignBlockOffset(fileSize - blockSize)
-        ReadToEndBytes = fileSize - AlignedBlockStart
+        if EXT_AlignedHashing in self.capabilities:
+            AlignedBlockStart = self._AlignBlockOffset(fileSize - blockSize)
+            ReadToEndBytes = fileSize - AlignedBlockStart
 
-        return AlignedBlockStart, ReadToEndBytes
+            return AlignedBlockStart, ReadToEndBytes
+        else:
+            return fileSize - blockSize, blockSize
 
 
     def _GetShortHash(self, fileObj, fileSize):
@@ -322,7 +333,6 @@ class CHashList():
 
             # Final Block. Align to block, then read extra if required
             FinalBlockOffset, FinalRead = self._GetFinalBlockOffset(fileSize, localBlockSize)
-            #print("Reading from {} by {} (FS: {})".format(FinalBlockOffset, FinalRead, fileSize))
             fileObj.seek(FinalBlockOffset, 0)
             LastBlock = fileObj.read(FinalRead)
 
@@ -338,13 +348,14 @@ class CHashList():
                 # Just read the entire file and reset seek
                 return self._GetLongHash(fileObj)
 
-            firstBlock = fileObj.read(localBlockSize)
+            FirstBlock = fileObj.read(localBlockSize)
 
-            # Seek end
-            fileObj.seek(-localBlockSize, 2)
-            lastBlock = fileObj.read(localBlockSize)
+            # Final Block. Align to block, then read extra if required
+            FinalBlockOffset, FinalRead = self._GetFinalBlockOffset(fileSize, localBlockSize)
+            fileObj.seek(FinalBlockOffset, 0)
+            LastBlock = fileObj.read(FinalRead)
 
-            sHash = self._GetHash(firstBlock + lastBlock)
+            sHash = self._GetHash(FirstBlock + LastBlock)
 
             # Reset seek
             fileObj.seek(0) 

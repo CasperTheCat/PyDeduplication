@@ -82,6 +82,10 @@ def GetHashExtensions(arguments: argparse.Namespace):
         print("[EXTENSION] Centred Short Hash Block Enabled")
         HashExts.append(Extensions.EXT_IncludeFileMiddleInShortHash)
 
+    if not arguments.unalign_reads:
+        print("[EXTENSION] Aligned Reads Enabled (Default)")
+        HashExts.append(Extensions.EXT_AlignedHashing)
+
     return HashExts
 
 excludeDirs = [".git"]
@@ -102,6 +106,7 @@ if __name__ == "__main__":
     parser.add_argument('-zb', '--zfs-block', action="store_true", help='Use 128KiB short hash block size to align to common ZFS parameters, up from 4Ki')
     parser.add_argument('-mb', '--medium-block', action="store_true", help='Use 1MiB short hash block size, up from 4Ki')
     parser.add_argument('-lb', '--large-block', action="store_true", help='Use 16MiB short hash block size, up from 4Ki or 1Mi')
+    parser.add_argument('--unalign-reads', action="store_true", help='Unalign short hash reads to mimic old behaviour')
     parser.add_argument("path", metavar="path", type=str)
 
     args = parser.parse_args()
