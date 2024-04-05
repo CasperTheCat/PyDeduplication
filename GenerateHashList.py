@@ -432,14 +432,26 @@ if __name__ == "__main__":
 
                 saneRelPath = hashlist._SanitisePath(relp)
 
-                hashlist.AddHashedElement(
-                    saneRelPath,
-                    ext,
-                    fileSize,
-                    ShortHash,
-                    LongHash,
-                    None
-                )
+                if hashlist._IsPathKnown(relp, ext):
+                    # Interesting
+                    LogQueue.put([Utils.FormatLog(Utils.ELogSeverity.Info, "[MODIFIED] File {} has been modified".format(saneRelPath))])
+                    hashlist.UpdateHashedElement(
+                        saneRelPath,
+                        ext,
+                        fileSize,
+                        ShortHash,
+                        LongHash,
+                        None
+                    )
+                else:
+                    hashlist.AddHashedElement(
+                        saneRelPath,
+                        ext,
+                        fileSize,
+                        ShortHash,
+                        LongHash,
+                        None
+                    )
 
 
             LongQueue.task_done()

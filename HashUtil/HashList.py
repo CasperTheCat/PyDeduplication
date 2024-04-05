@@ -69,6 +69,7 @@ class CHashList():
         self.ginLongHash = {}
         self.ginPerceptual = {}
         self.ginTypes = {}
+        self.ginPath = {}
 
         #LoadHashes
         if path:
@@ -126,6 +127,19 @@ class CHashList():
         else:
             gin[key] = [value]
 
+    def _UpdateGin(self, gin, key, oldValue, newValue):
+        if key in gin and oldValue in gin[key]:
+            Index = gin[key].index(oldValue)
+            gin[key] = gin[key][:Index] + [newValue] + gin[key][Index+1:]
+        else:
+            self._AddToGin(gin, key, newValue)
+
+    def _RemoveFromGin(self, gin, key, value):
+        oldGinIndices = gin[key]
+        GinIdx = oldGinIndices.index(value)
+        oldGinIndices = oldGinIndices[:GinIdx] + oldGinIndices[GinIdx+1:]
+        gin[key] = oldGinIndices
+
     def _GenerateGINs(self):
         # Generate
         print("[INFO] Generate Inverted Indices")
@@ -135,6 +149,7 @@ class CHashList():
         self.ginLongHash = {}
         self.ginPerceptual = {}
         self.ginTypes = {}
+        self.ginPath = {}
 
         # For all hashes
         for idx in range(len(self.hashList)):
@@ -150,7 +165,7 @@ class CHashList():
         # Add to Short GIN
         if shs is not None:
             self._AddToGin(self.ginShortHash, shs, value)
-        
+
         if lhs is not None:
             self._AddToGin(self.ginLongHash, lhs, value)
 
@@ -164,6 +179,31 @@ class CHashList():
         elif nm[1].lower() in PERC_supportedVideoTypes:
             self._AddToGin(self.ginTypes, "Video", value)
 
+        if nm is not None:
+            self._AddToGin(self.ginPath, nm[0], value)
+
+    def _UpdateGins(self, index, oldHashValues, newHashValues):
+        (sz, shs, lhs, nm, ph) = oldHashValues
+        (newSize, newShortHash, newLongHash, newPath, newPercHash) = newHashValues
+
+        # Add to Short GIN
+        if shs is not None:
+            self._RemoveFromGin(self.ginShortHash, shs, index)
+            self._AddToGin(self.ginShortHash, newShortHash, index)
+
+        if lhs is not None:
+            self._RemoveFromGin(self.ginLongHash, lhs, index)
+            self._AddToGin(self.ginLongHash, newLongHash, index)
+
+        if ph is not None:
+            hashAsString = ph[0][:HASH_CLIP]
+            newHashAsString = newPercHash[0][:HASH_CLIP]
+            self._RemoveFromGin(self.ginPerceptual, hashAsString, index)
+            self._AddToGin(self.ginPerceptual, newHashAsString, index)
+
+        if nm is not None:
+            self._RemoveFromGin(self.ginPath, nm[0], index)
+            self._AddToGin(self.ginPath, newPath, index)
 
     def _LoadHashList(self, path, fromCheckpoint:bool=False):
         with open(path, "rb+") as f:
@@ -618,6 +658,9 @@ class CHashList():
     def _DoesPerceptualHashCollide(self, iFileSize, name, hPerceptualHash, minimumLogSeverity, logList=None):
         return self._DoesHashCollide(iFileSize, name, None, None, minimumLogSeverity, logList, hPerceptualHash)
 
+    def _IsPathKnown(self, relativePath, extension):
+        return relativePath in self.ginPath
+
     def PrecomputeShortHash(self, root, relPath, extension, fileSize, useRawHashes=False):
         # Get file size
         fullPath = os.path.join(root, relPath)
@@ -722,7 +765,23 @@ class CHashList():
 
         return IsKnown
 
-    def AddHashedElement(self, relativePath, extension, fileSize, shortHash, longHash, perceptualHash ):
+    def UpdateHashedElement(self, relativePath, extension, fileSize, shortHash, longHash, perceptualHash):
+        # Early out
+        if not self._IsPathKnown(relativePath, extension):
+            return self.AddHashedElement(self, relativePath, extension, fileSize, shortHash, longHash, perceptualHash)
+
+        # Get item by path
+        Indices = self.ginPath[relativePath]
+        if len(Indices) == 0:
+            print("WHAT!")
+
+        for Index in Indices:
+            NewValue = (fileSize, shortHash, longHash, (relativePath, extension), perceptualHash)
+            self._UpdateGins(Index, self.hashList[Index], NewValue)
+            self.hashList[Index] = NewValue
+            self.isDirty = True
+
+    def AddHashedElement(self, relativePath, extension, fileSize, shortHash, longHash, perceptualHash):
         self.hashList.append((fileSize, shortHash, longHash, (relativePath, extension), perceptualHash))
         self._AddToGINs(len(self.hashList) - 1)
         self.isDirty = True
@@ -758,9 +817,10 @@ class CHashList():
             # CRITICAL REGION
             self._LockMutex(mutex)
             # FORMAT: Size, SH, LH, (Rel+Type), PH
-            self.hashList.append((l_FileSize, l_ShortHash, l_LongHash, (saneRelPath, extension), l_PercHash))
-            self._AddToGINs(len(self.hashList) - 1)
-            self.isDirty = True
+            self.AddHashedElement(saneRelPath, extension, l_FileSize, l_ShortHash, l_LongHash, l_PercHash)
+            # self.hashList.append((l_FileSize, l_ShortHash, l_LongHash, (saneRelPath, extension), l_PercHash))
+            # self._AddToGINs(len(self.hashList) - 1)
+            # self.isDirty = True
 
             # Checkpoint
             self.unserialisedBytes += l_FileSize
