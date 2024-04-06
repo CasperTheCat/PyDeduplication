@@ -164,6 +164,15 @@ def ProcessThreadMain(ThreadID, TaskQueue, OutQueue, GlobalHashList, LogQueue):
                     DidCollide = GlobalHashList._DoesShortHashCollide(fileSize, (relp, ext), ShortHash, Utils.ELogSeverity.Info, LocalLogs)
                     if not DidCollide:
                         LocalResults.append((EProcessPhase.PrimaryShortHashPass, (args, pathAsBytes, relp, ext, fileSize, ShortHash)))
+                    else:
+                        # Check modified. It'll get caught in the next step if it isn't caught here
+                        SaneRelPath = GlobalHashList._SanitisePath(relp)
+                        IsPathKnown = GlobalHashList._IsPathKnown(SaneRelPath, ext)
+                        if IsPathKnown and not GlobalHashList.IsHashedElementKnownAtPath(SaneRelPath, ShortHash):
+                            #LogQueue.put([Utils.FormatLog(Utils.ELogSeverity.Info, "[MODIFIED] File {} has been modified".format(SaneRelPath))])
+                            # Push this *back* into the stack because we want to update the modified file
+                            LocalResults.append((EProcessPhase.PrimaryShortHashPass, (args, pathAsBytes, relp, ext, fileSize, ShortHash)))
+
         elif TaskType == EProcessPhase.SecondaryFullPass:
             args, pathAsBytes, relp, ext, fileSize, ShortHash = TaskArgs
             LongHash = SecondaryPhase(args, pathAsBytes, relp, ext, fileSize, GlobalHashList, LocalLogs)
@@ -175,6 +184,14 @@ def ProcessThreadMain(ThreadID, TaskQueue, OutQueue, GlobalHashList, LogQueue):
 
                     if not DidCollide:
                         LocalResults.append((EProcessPhase.SecondaryFullPass, (args, pathAsBytes, relp, ext, fileSize, ShortHash, LongHash)))
+                    else:
+                        # Check modified. It'll get caught in the next step if it isn't caught here
+                        SaneRelPath = GlobalHashList._SanitisePath(relp)
+                        IsPathKnown = GlobalHashList._IsPathKnown(SaneRelPath, ext)
+                        if IsPathKnown and not GlobalHashList.IsHashedElementKnownAtPath(SaneRelPath, longHash = LongHash):
+                            #LogQueue.put([Utils.FormatLog(Utils.ELogSeverity.Info, "[MODIFIED] File {} has been modified".format(SaneRelPath))])
+                            # Push this *back* into the stack because we want to update the modified file
+                            LocalResults.append((EProcessPhase.SecondaryFullPass, (args, pathAsBytes, relp, ext, fileSize, ShortHash, LongHash)))
 
                 else:
                     LocalResults.append((EProcessPhase.SecondaryFullPass, (args, pathAsBytes, relp, ext, fileSize, ShortHash, LongHash)))
@@ -384,6 +401,10 @@ if __name__ == "__main__":
 
         LongStart = time.time()
 
+        # TODO: Catch files that are modified to collide with an existing file
+        # TODO: Log MODIFIED on those
+        # TODO: Account total collision filesize wastage
+
         KnownReductionHashes = {}
         while not ResultQueue.empty():
             T = ResultQueue.get()
@@ -397,8 +418,14 @@ if __name__ == "__main__":
                 if UseLongComparison or not ShortHash in KnownReductionHashes:
                     TaskQueue.put((EProcessPhase.SecondaryFullPass, (args, pathAsBytes, relp, ext, fileSize, ShortHash)))
                     KnownReductionHashes[ShortHash] = saneRelPath
-                elif not UseLongComparison and ShortHash in KnownReductionHashes and not args.silent:
-                    LogQueue.put([Utils.FormatLog(Utils.ELogSeverity.Info, "[COLLISION] File {} collided with {}".format(saneRelPath, KnownReductionHashes[ShortHash]))])
+                else:
+                    # Grab any modified elements here as well.
+                    IsPathKnown = hashlist._IsPathKnown(saneRelPath, ext)
+                    if IsPathKnown and not hashlist.IsHashedElementKnownAtPath(saneRelPath, ShortHash):
+                        #LogQueue.put([Utils.FormatLog(Utils.ELogSeverity.Info, "[MODIFIED2] File {} has been modified".format(saneRelPath))])
+                        TaskQueue.put((EProcessPhase.SecondaryFullPass, (args, pathAsBytes, relp, ext, fileSize, ShortHash)))
+                    elif not UseLongComparison and ShortHash in KnownReductionHashes and not args.silent:
+                        LogQueue.put([Utils.FormatLog(Utils.ELogSeverity.Info, "[COLLISION] File {} collided with {}".format(saneRelPath, KnownReductionHashes[ShortHash]))])
 
             ResultQueue.task_done()
 

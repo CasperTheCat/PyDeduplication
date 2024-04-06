@@ -500,6 +500,11 @@ class CHashList():
 
         return False
 
+    def _GinContains(self, gin, key, value):
+        if key in gin:
+            return value in gin[key]
+        return False
+
     # Refactor later!
     # We want to filter info about hard or soft collisions upwards (IE, we want information about *why* a collision occured)
     def _DoesHashCollide(self, iFileSize, name, hShortHash, hLongHash, minimumLogSeverity, logList, hPerceptualHash=None):
@@ -660,6 +665,26 @@ class CHashList():
 
     def _IsPathKnown(self, relativePath, extension):
         return relativePath in self.ginPath
+
+    def IsHashedElementKnownAtPath(self, relativePath, shortHash = None, longHash = None):
+        if not relativePath in self.ginPath:
+            return False
+
+        # Get item by path
+        Indices = self.ginPath[relativePath]
+        if len(Indices) == 0:
+            print("WHAT2!")
+        if len(Indices) > 1:
+            print("WHAT THE DUCK?")
+
+        OldElement = self.hashList[Indices[0]]
+        _, OldShortHash, OldLongHash, _, _ = OldElement
+
+        # If both short and long are provided, use the long to check
+        LongMatch = longHash is not None and longHash == OldLongHash
+        ShortMatch= shortHash is not None and shortHash == OldShortHash
+
+        return LongMatch or ShortMatch
 
     def PrecomputeShortHash(self, root, relPath, extension, fileSize, useRawHashes=False):
         # Get file size
