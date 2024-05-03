@@ -471,6 +471,7 @@ if __name__ == "__main__":
                         None
                     )
                 else:
+                    LogQueue.put([Utils.FormatLog(Utils.ELogSeverity.Info, "[ADDITION] File: {}".format(saneRelPath))])
                     hashlist.AddHashedElement(
                         saneRelPath,
                         ext,
