@@ -281,6 +281,11 @@ def GetFileTasks(args):
             # Let's catagorise these
             f = fi.split(".")
             path = os.path.join(r, fi)
+
+            # Do a check on this thing
+            if (os.path.islink(path)):
+                continue
+
             relp = os.path.relpath(path, os.path.abspath(args.path)).encode()
             ext = f[len(f) - 1].lower().encode()
             pathAsBytes = args.path.encode()
